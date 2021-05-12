@@ -1,0 +1,53 @@
+#include <stdio.h>
+#include "server.h"
+
+void print_server_error_code(int code)
+{
+    switch(code)
+    {
+        case ERR_SOCKET_FAILED:
+            printf("Error during the creation of the socket\n");
+            break;
+        case ERR_SOCKET_BIND_FAILED:
+            printf("Error during the binding of the socket\n");
+            break;
+        case ERR_SOCKET_LISTEN_FAILED:
+            printf("Error during the listening of the socket\n");
+            break;
+        default:
+            printf("Status code %d is unknown\n", code);
+            break;
+    }
+}
+
+int main()
+{
+    if(load_config_server() == ERR_READING_CONFIG)
+    {
+        printf("[Error]: Configuration file cannot be opened!\n");
+        return -1;
+    }
+
+    printf("Server config loaded succesfully!\n");
+    print_configuration_params(&loaded_configuration);
+
+    int status = init_server();
+    if(status != SERVER_OK)
+    {
+        printf("[Error]: ");
+        print_server_error_code(status);
+        return -1;
+    }
+
+    printf("Server initialized succesfully!\n");
+
+    int exit_status = start_server();
+    if(exit_status != SERVER_OK)
+    {
+        printf("[Error]: ");
+        print_server_error_code(status);
+        return -1;
+    }
+
+    return 0;
+}
