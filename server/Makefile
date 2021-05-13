@@ -1,26 +1,26 @@
-IDIR = ./includes
 CC = gcc
-CFLAGS = -Wall -pedantic -I $(IDIR)
+CFLAGS = -Wall -pedantic -I ./includes -I ../shared_lib
 
 ODIR = ./obj
 BDIR = ./bin
 
-SERVER_TARGET = bin/server
-
 LIBS = -pthread
-
-_DEPS = server.h config_params.h
-DEPS = $(patsubst %,$(IDIR)/%,$(_DEPS))
-
-_OBJ = config_params.o server.o
-OBJ = $(patsubst %,$(ODIR)/%,$(_OBJ))
 
 $(ODIR)/%.o: ./src/%.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS)
 
-$(SERVER_TARGET): $(OBJ)
-	$(CC) $(CFLAGS) ./src/main.c -o ./$(SERVER_TARGET).out $(OBJ) $(LIBS)
+bin/server: obj/config_params.o obj/server.o obj/queue.o
+	$(CC) $(CFLAGS) src/main.c -o $@.out $^ $(LIBS)
 	test -f $(BDIR)/config.txt || $(MAKE) force_generate_config
+
+obj/config_params.o: src/config_params.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+obj/server.o: src/server.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+obj/queue.o: ../shared_lib/queue.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
 	rm -f $(ODIR)/* *~ core $(INCDIR)/*~

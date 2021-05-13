@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include "config_params.h"
+#include "queue.h"
 
 #define TRUE 1
 #define FALSE 0
@@ -25,11 +26,9 @@ typedef int quit_signal_t;
 // GESTIRE SIGINT, SIGQUIT (Chiusura il prima possibile, non accetta nuove richieste e chiude) 
 // e SIGHUP non accetta nuove richieste e finisce con quelle rimanenti
 
-//extern pthread_mutex_t test;
-//extern pthread_cond_t qsignal_cond;
-
-extern pthread_mutex_t message_queue_mutex;
-extern pthread_cond_t message_received_cond;
+extern pthread_mutex_t clients_queue_mutex;
+extern pthread_cond_t client_received_cond;
+extern queue_t clients_queue;
 
 extern pthread_mutex_t quit_signal_mutex;
 extern quit_signal_t quit_signal;

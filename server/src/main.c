@@ -19,6 +19,29 @@ void print_server_error_code(int code)
             break;
     }
 }
+#include <unistd.h>
+void* example_fill_queue(void* param)
+{
+    while(1)
+    {
+        pthread_mutex_lock(&clients_queue_mutex);
+        enqueue(&clients_queue, 10);
+        enqueue(&clients_queue, 10);
+        enqueue(&clients_queue, 10);
+        enqueue(&clients_queue, 10);
+
+        if(count(&clients_queue) > 4)
+        {
+            pthread_mutex_unlock(&clients_queue_mutex);
+        }
+
+        pthread_cond_signal(&client_received_cond);
+        pthread_mutex_unlock(&clients_queue_mutex);
+        sleep(1);
+    }
+
+    return NULL;
+}
 
 int main()
 {
@@ -40,6 +63,9 @@ int main()
     }
 
     printf("Server initialized succesfully!\n");
+
+    pthread_t x;
+    pthread_create(&x, NULL, &example_fill_queue, NULL);
 
     int exit_status = start_server();
     if(exit_status != SERVER_OK)

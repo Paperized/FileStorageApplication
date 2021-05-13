@@ -10,7 +10,7 @@
 #define INITIALIZE_SERVER_FUNCTIONALITY(initializer, status) status = initializer(); \
                                                                 if(status != SERVER_OK) \
                                                                 { \
-                                                                    quit_server(); \
+                                                                    rollback_server_and_quit(); \
                                                                     return status; \
                                                                 }
 
@@ -19,6 +19,13 @@
 #define SKIP_WRONG_ACCEPT_RET(accept_value, output) if(accept_value == -1) continue; \
                                                 output = accept_value
 
+#define BREAK_ON_FAST_QUIT(qv, m)  if((qv = get_quit_signal()) == S_FAST) \
+                                    { \
+                                        pthread_mutex_unlock(m); \
+                                        break; \
+                                    }
+
+
 configuration_params loaded_configuration;
 int server_socket_id;
 
@@ -26,8 +33,9 @@ pthread_t* thread_workers_ids;
 pthread_t thread_signals_id;
 pthread_t thread_accepter_id;
 
-pthread_mutex_t message_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t message_received_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t clients_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t client_received_cond = PTHREAD_COND_INITIALIZER;
+queue_t clients_queue = INIT_EMPTY_QUEUE;
 
 pthread_mutex_t quit_signal_mutex = PTHREAD_MUTEX_INITIALIZER;
 quit_signal_t quit_signal = S_NONE;
@@ -68,32 +76,44 @@ void set_quit_signal(quit_signal_t value)
 
 void* handle_client_requests(void* data)
 {
-    while(get_quit_signal() == S_NONE)
+    printf("Running worker thread\n");
+    quit_signal_t quit_signal;
+    while((quit_signal = get_quit_signal()) == S_NONE)
     {
-        printf("Running thread\n");
-        
-        pthread_mutex_lock(&message_queue_mutex);
-        if(/* coda == 0 */1)
+        int client_handled;
+        pthread_mutex_lock(&clients_queue_mutex);
+        while(count(&clients_queue) == 0)
         {
-            if(pthread_cond_wait(&message_received_cond, &message_queue_mutex) != 0)
+            if(pthread_cond_wait(&client_received_cond, &clients_queue_mutex) != 0)
             {
-                pthread_mutex_unlock(&message_queue_mutex);
+                pthread_mutex_unlock(&clients_queue_mutex);
                 continue;
             }
+
+            BREAK_ON_FAST_QUIT(quit_signal, &clients_queue_mutex);
         }
 
+        // quit worker loop if signal
+        if(quit_signal == S_FAST)
+            break;
+
+
+        client_handled = dequeue(&clients_queue);
+        pthread_mutex_unlock(&clients_queue_mutex);
+
+        printf("[W/%lu] Handling client with id: %d.\n", pthread_self(), client_handled);
+        sleep(1);
+        printf("[W/%lu] Finished handling.\n", pthread_self());
         // Handle the message
 
         // extract message
         // check header
         // elaborate
 
-        pthread_mutex_unlock(&message_queue_mutex);
-
     }
 
     // on close
-    printf("QUitting worker.\n");
+    printf("Quitting worker.\n");
     return NULL;
 }
 
@@ -187,6 +207,7 @@ int reset_signals()
     sigset_t bitmask;
 
     CHECK_ERROR(sigemptyset(&bitmask) == -1, ERR_SERVER_SIGNALS);
+    CHECK_ERROR(pthread_sigmask(SIG_SETMASK, &bitmask, NULL) != 0, ERR_SERVER_SIGNALS);
 
     return SERVER_OK;
 }
@@ -203,23 +224,32 @@ int disable_signals()
 
 int initialize_signals()
 {
-    CHECK_ERROR(enable_needed_signales() == ERR_SERVER_SIGNALS, ERR_SERVER_SIGNALS);
     CHECK_ERROR(pthread_create(&thread_signals_id, NULL, &handle_signals, NULL), ERR_SERVER_SIGNALS);
-
     signals_initialized = TRUE;
+
+    // Reset signals masked in the initialization
     return SERVER_OK;
 }
 
 void* handle_connections(void* params)
 {
-    while(get_quit_signal() == S_NONE)
+    while(TRUE)
     {
         int new_id;
+        bool_t queue_failed = FALSE;
+
         printf("Waiting for new connections.\n");
         SKIP_WRONG_ACCEPT_RET(accept(server_socket_id, NULL, 0), new_id);
 
-        
-        // altro
+        // add to queue
+        queue_failed = enqueue_safe(&clients_queue, new_id, &clients_queue_mutex) != 0;
+
+        // if something go wrong with the queue we close the connection right away
+        if(queue_failed)
+        {
+            printf("Error: some problems may occourred with malloc in enqueue.\n");
+            close(new_id);
+        }
     }
 
     return NULL;
@@ -233,21 +263,25 @@ int initialize_connection_accepter()
     return SERVER_OK;
 }
 
-void quit_server()
+void rollback_server_and_quit()
 {
+    printf("Rollback server and quitting.\n");
+
     // wait all threads to finish
     if(signals_initialized)
     {
-        printf("Joining signal thread.\n");
+        printf("Quitting signal thread.\n");
+        pthread_cancel(thread_signals_id);
         pthread_join(thread_signals_id, NULL);
     }
 
     // Capire come chiudere i workers in attesa di una condizione
-    if(workers_count > 0 && get_quit_signal() != S_FAST)
+    if(workers_count > 0)
     {
-        printf("Joining workers thread.\n");
+        printf("Quitting workers thread.\n");
         for(int i = 0; i < workers_count; ++i)
         {
+            pthread_cancel(thread_workers_ids[i]);
             pthread_join(thread_workers_ids[i], NULL);
         }
     }
@@ -268,10 +302,35 @@ void quit_server()
 
 int wait_server_end()
 {
+    quit_signal_t closing_signal;
+
     // wait for a closing signal
     pthread_join(thread_signals_id, NULL);
+    closing_signal = get_quit_signal();
 
-    quit_server();
+    pthread_cancel(thread_accepter_id);
+    pthread_join(thread_accepter_id, NULL);
+
+    pthread_cond_broadcast(&client_received_cond);
+
+    printf("Joining workers thread.\n");
+    for(int i = 0; i < loaded_configuration.thread_workers; ++i)
+    {
+        if(closing_signal == S_FAST)
+            pthread_cancel(thread_workers_ids[i]);
+
+        pthread_join(thread_workers_ids[i], NULL);
+    }
+
+    printf("Freeing memory.\n");
+    free(thread_workers_ids);
+
+    printf("Closing socket and removing it.\n");
+    close(server_socket_id);
+    remove(loaded_configuration.socket_name);
+
+    printf("Resetting signals.\n");
+    reset_signals();
 
     // this function returns only SERVER_OK but can be expanded with other return values
     return SERVER_OK;
@@ -281,12 +340,14 @@ int start_server()
 {
     int lastest_status;
 
-    // Initialize and run workers
-    INITIALIZE_SERVER_FUNCTIONALITY(initialize_workers, lastest_status);
     // Initialize and run signals
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_signals, lastest_status);
+    // Initialize and run workers
+    INITIALIZE_SERVER_FUNCTIONALITY(initialize_workers, lastest_status);
     // Initialize and run connections
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_connection_accepter, lastest_status);
+
+    printf("Server started with PID:%d.\n", getpid());
 
     // wait until end
     return wait_server_end();
