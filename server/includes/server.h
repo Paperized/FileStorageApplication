@@ -2,6 +2,7 @@
 #define _SERVER_
 
 #include <pthread.h>
+#include "packet.h"
 #include "config_params.h"
 #include "queue.h"
 

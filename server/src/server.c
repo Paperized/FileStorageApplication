@@ -76,6 +76,8 @@ void set_quit_signal(quit_signal_t value)
 
 void* handle_client_requests(void* data)
 {
+    pthread_t curr = pthread_self();
+
     printf("Running worker thread\n");
     quit_signal_t quit_signal;
     while((quit_signal = get_quit_signal()) == S_NONE)
@@ -97,19 +99,46 @@ void* handle_client_requests(void* data)
         if(quit_signal == S_FAST)
             break;
 
-
         client_handled = dequeue(&clients_queue);
         pthread_mutex_unlock(&clients_queue_mutex);
 
-        printf("[W/%lu] Handling client with id: %d.\n", pthread_self(), client_handled);
+        printf("[W/%lu] Handling client with id: %d.\n", curr, client_handled);
+
+        // test sleep
         sleep(1);
-        printf("[W/%lu] Finished handling.\n", pthread_self());
+
+        packet_t upcoming_p = INIT_EMPTY_PACKET(OP_UNKNOWN);
+        int res = read_packet_from_fd(client_handled, &upcoming_p);
+
+        if(res == PACKET_EMPTY)
+        {
+            printf("[W/%lu]: Packet empty, client closed connection.\n", curr);
+            continue;
+        }
+
         // Handle the message
+        switch(upcoming_p.header.op)
+        {
+            case OP_OPEN_FILE:
+                break;
 
-        // extract message
-        // check header
-        // elaborate
+            case OP_REMOVE_FILE:
+                break;
 
+            case OP_WRITE_FILE:
+                break;
+
+            case OP_APPEND_FILE:
+                break;
+            
+            case OP_READ_FILE:
+                break;
+
+            case OP_CLOSE_FILE:
+                break;
+        }
+
+        printf("[W/%lu] Finished handling.\n", curr);
     }
 
     // on close
