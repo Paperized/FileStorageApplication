@@ -6,9 +6,6 @@ BDIR = ./bin
 
 LIBS = -pthread
 
-$(ODIR)/%.o: ./src/%.c $(DEPS)
-	$(CC) -c -o $@ $< $(CFLAGS)
-
 bin/server: obj/config_params.o obj/server.o obj/queue.o obj/packet.o
 	$(CC) $(CFLAGS) src/main.c -o $@.out $^ $(LIBS)
 	test -f $(BDIR)/config.txt || $(MAKE) force_generate_config
@@ -20,7 +17,7 @@ obj/server.o: src/server.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 obj/queue.o: ../shared_lib/queue.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $< 
 
 obj/packet.o: ../shared_lib/packet.c
 	$(CC) $(CFLAGS) -c -o $@ $<

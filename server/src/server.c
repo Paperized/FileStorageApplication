@@ -35,7 +35,7 @@ pthread_t thread_accepter_id;
 
 pthread_mutex_t clients_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t client_received_cond = PTHREAD_COND_INITIALIZER;
-queue_t clients_queue = INIT_EMPTY_QUEUE;
+queue_t clients_queue = INIT_EMPTY_QUEUE(sizeof(int));
 
 pthread_mutex_t quit_signal_mutex = PTHREAD_MUTEX_INITIALIZER;
 quit_signal_t quit_signal = S_NONE;
@@ -82,7 +82,7 @@ void* handle_client_requests(void* data)
     quit_signal_t quit_signal;
     while((quit_signal = get_quit_signal()) == S_NONE)
     {
-        int client_handled;
+        int* client_handled_p;
         pthread_mutex_lock(&clients_queue_mutex);
         while(count(&clients_queue) == 0)
         {
@@ -99,20 +99,21 @@ void* handle_client_requests(void* data)
         if(quit_signal == S_FAST)
             break;
 
-        client_handled = dequeue(&clients_queue);
+        client_handled_p = cast_to(int*, dequeue(&clients_queue));
         pthread_mutex_unlock(&clients_queue_mutex);
 
-        printf("[W/%lu] Handling client with id: %d.\n", curr, client_handled);
+        printf("[W/%lu] Handling client with id: %d.\n", curr, *client_handled_p);
 
         // test sleep
         sleep(1);
 
         packet_t upcoming_p = INIT_EMPTY_PACKET(OP_UNKNOWN);
-        int res = read_packet_from_fd(client_handled, &upcoming_p);
+        int res = read_packet_from_fd(*client_handled_p, &upcoming_p);
 
         if(res == PACKET_EMPTY)
         {
             printf("[W/%lu]: Packet empty, client closed connection.\n", curr);
+            free(client_handled_p);
             continue;
         }
 
@@ -138,6 +139,7 @@ void* handle_client_requests(void* data)
                 break;
         }
 
+        free(client_handled_p);
         printf("[W/%lu] Finished handling.\n", curr);
     }
 
@@ -153,6 +155,7 @@ void* handle_signals(void* params)
     CHECK_ERROR(sigaddset(&managed_signals, SIGQUIT) == -1, (void*)ERR_SERVER_SIGNALS);
     CHECK_ERROR(sigaddset(&managed_signals, SIGHUP) == -1, (void*)ERR_SERVER_SIGNALS);
     CHECK_ERROR(sigaddset(&managed_signals, SIGINT) == -1, (void*)ERR_SERVER_SIGNALS);
+    CHECK_ERROR(pthread_sigmask(SIG_SETMASK, &managed_signals, NULL) == -1, (void*)ERR_SERVER_SIGNALS);
     
     quit_signal_t local_quit_signal = S_NONE;
     quit_signal_t shared_quit_signal;
@@ -271,7 +274,7 @@ void* handle_connections(void* params)
         SKIP_WRONG_ACCEPT_RET(accept(server_socket_id, NULL, 0), new_id);
 
         // add to queue
-        queue_failed = enqueue_safe(&clients_queue, new_id, &clients_queue_mutex) != 0;
+        queue_failed = enqueue_safe(&clients_queue, &new_id, &clients_queue_mutex) != 0;
 
         // if something go wrong with the queue we close the connection right away
         if(queue_failed)

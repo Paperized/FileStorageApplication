@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "server.h"
 
 void print_server_error_code(int code)
@@ -22,13 +23,15 @@ void print_server_error_code(int code)
 #include <unistd.h>
 void* example_fill_queue(void* param)
 {
-    while(1)
+    while(get_quit_signal() == S_NONE)
     {
         pthread_mutex_lock(&clients_queue_mutex);
-        enqueue(&clients_queue, 10);
-        enqueue(&clients_queue, 10);
-        enqueue(&clients_queue, 10);
-        enqueue(&clients_queue, 10);
+
+        int to_add = 10;
+        enqueue(&clients_queue, (void*)&to_add);
+        enqueue(&clients_queue, (void*)&to_add);
+        enqueue(&clients_queue, (void*)&to_add);
+        enqueue(&clients_queue, (void*)&to_add);
 
         if(count(&clients_queue) > 4)
         {
@@ -40,6 +43,7 @@ void* example_fill_queue(void* param)
         sleep(1);
     }
 
+    printf("Quitting fill example thread.\n");
     return NULL;
 }
 
@@ -73,6 +77,14 @@ int main()
         printf("[Error]: ");
         print_server_error_code(status);
         return -1;
+    }
+
+    pthread_join(x, NULL);
+
+    while(clients_queue.count > 0)
+    {
+        int* val = cast_to(int*, dequeue(&clients_queue));
+        free(val);
     }
 
     return 0;
