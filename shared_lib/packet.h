@@ -21,11 +21,13 @@ typedef uint32_t packet_len;
 
 typedef struct packet_header_t {
     packet_op op;
+    int fd_sender;
+    packet_len len;
 } packet_header_t;
 
 typedef struct packet_body_t {
-    void* content;
-    packet_len len;
+    char* content;
+    packet_len cursor_index;
 } packet_body_t;
 
 typedef struct packet_t {
@@ -33,9 +35,12 @@ typedef struct packet_t {
     packet_body_t body;
 } packet_t;
 
-#define INIT_EMPTY_PACKET(op) { { op }, { (void*)0, 0 } }
+#define INIT_EMPTY_PACKET(op) { { op, -1, 0 }, { (void*)0, 0 } }
 
-int read_packet_from_fd(int fd, packet_t* p);
+packet_t* read_packet_from_fd(int fd);
+int send_packet_to_fd(int id, packet_t* p);
 void destroy_packet(packet_t* p);
+
+int is_packet_valid(packet_t* p);
 
 #endif

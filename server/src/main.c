@@ -25,21 +25,23 @@ void* example_fill_queue(void* param)
 {
     while(get_quit_signal() == S_NONE)
     {
-        pthread_mutex_lock(&clients_queue_mutex);
+        pthread_mutex_lock(&clients_list_mutex);
 
+        /*
         int to_add = 10;
-        enqueue(&clients_queue, (void*)&to_add);
-        enqueue(&clients_queue, (void*)&to_add);
-        enqueue(&clients_queue, (void*)&to_add);
-        enqueue(&clients_queue, (void*)&to_add);
+        enqueue_m(&clients_connected, &to_add);
+        enqueue_m(&clients_connected, &to_add);
+        enqueue_m(&clients_connected, &to_add);
+        enqueue_m(&clients_connected, &to_add);
 
-        if(count(&clients_queue) > 4)
+        if(count_q(&clients_connected) > 4)
         {
             pthread_mutex_unlock(&clients_queue_mutex);
         }
 
-        pthread_cond_signal(&client_received_cond);
-        pthread_mutex_unlock(&clients_queue_mutex);
+        pthread_cond_signal(&request_received_cond);
+        */
+        pthread_mutex_unlock(&clients_list_mutex);
         sleep(1);
     }
 
@@ -80,12 +82,6 @@ int main()
     }
 
     pthread_join(x, NULL);
-
-    while(clients_queue.count > 0)
-    {
-        int* val = cast_to(int*, dequeue(&clients_queue));
-        free(val);
-    }
 
     return 0;
 }

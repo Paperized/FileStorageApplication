@@ -22,14 +22,22 @@ typedef int quit_signal_t;
 #define ERR_SOCKET_INIT_WORKERS -5
 #define ERR_SERVER_SIGNALS -6
 #define ERR_SOCKET_INIT_ACCEPTER -7
+#define ERR_SERVER_INIT_READER -8
 #define SERVER_OK 0
 
 // GESTIRE SIGINT, SIGQUIT (Chiusura il prima possibile, non accetta nuove richieste e chiude) 
 // e SIGHUP non accetta nuove richieste e finisce con quelle rimanenti
 
-extern pthread_mutex_t clients_queue_mutex;
-extern pthread_cond_t client_received_cond;
-extern queue_t clients_queue;
+extern pthread_cond_t request_received_cond;
+
+extern pthread_mutex_t clients_list_mutex;
+extern linked_list_t clients_connected;
+
+extern pthread_mutex_t clients_set_mutex;
+extern fd_set clients_connected_set;
+
+extern pthread_mutex_t requests_queue_mutex;
+extern queue_t requests_queue;
 
 extern pthread_mutex_t quit_signal_mutex;
 extern quit_signal_t quit_signal;
