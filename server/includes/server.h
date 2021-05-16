@@ -28,14 +28,14 @@ typedef int quit_signal_t;
 // GESTIRE SIGINT, SIGQUIT (Chiusura il prima possibile, non accetta nuove richieste e chiude) 
 // e SIGHUP non accetta nuove richieste e finisce con quelle rimanenti
 
-extern pthread_cond_t request_received_cond;
-
+extern pthread_cond_t clients_connected_cond;
 extern pthread_mutex_t clients_list_mutex;
 extern linked_list_t clients_connected;
 
 extern pthread_mutex_t clients_set_mutex;
 extern fd_set clients_connected_set;
 
+extern pthread_cond_t request_received_cond;
 extern pthread_mutex_t requests_queue_mutex;
 extern queue_t requests_queue;
 

@@ -6,9 +6,15 @@
 #include <stdio.h>
 #include <signal.h>
 #include "server.h"
+#include "server_api_utils.h"
 
-#define LOCK_MUTEX(m) pthread_mutex_lock(m)
-#define UNLOCK_MUTEX(m) pthread_mutex_unlock(m)
+#define LOCK_MUTEX(m) pthread_mutex_lock(m); \
+                        printf("Lockato in riga: %d in %s ", __LINE__, __FILE__); \
+                        printf(".\n")
+
+#define UNLOCK_MUTEX(m) pthread_mutex_unlock(m); \
+                        printf("Unlockato in riga: %d in %s ", __LINE__, __FILE__); \
+                        printf(".\n")
 
 #define SET_VAR_MUTEX(var, value, m)  pthread_mutex_lock(m); \
                                       var = value; \
@@ -40,6 +46,7 @@ int server_socket_id;
 pthread_mutex_t clients_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t clients_set_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+pthread_cond_t clients_connected_cond = PTHREAD_COND_INITIALIZER;
 linked_list_t clients_connected = INIT_EMPTY_LL(sizeof(int));
 fd_set clients_connected_set;
 
@@ -332,7 +339,8 @@ int initialize_connection_accepter()
 
 void* handle_clients_packets()
 {
-    while(get_quit_signal() != S_FAST)
+    quit_signal_t quit_signal = S_NONE;
+    while((quit_signal= get_quit_signal()) != S_FAST)
     {
         struct timeval tv;
 
@@ -343,9 +351,18 @@ void* handle_clients_packets()
         LOCK_MUTEX(&clients_list_mutex);
         size_t n_clients;
         while((n_clients = ll_count(&clients_connected)) == 0)
-            pthread_cond_wait(&request_received_cond, &clients_list_mutex);
+        {
+            pthread_cond_wait(&clients_connected_cond, &clients_list_mutex);
+            
+            BREAK_ON_FAST_QUIT(quit_signal, &clients_list_mutex);
+        }
+
+        if(quit_signal == S_FAST)
+            break;
 
         UNLOCK_MUTEX(&clients_list_mutex);
+
+        printf("Count: %lu", n_clients);
 
         fd_set current_clients;
         GET_VAR_MUTEX(clients_connected_set, current_clients, &clients_set_mutex);
@@ -357,29 +374,34 @@ void* handle_clients_packets()
         LOCK_MUTEX(&clients_list_mutex);
         node_t* curr_client = ll_get_head_node(&clients_connected);
 
+        int error;
         while(curr_client != NULL)
         {
-            int curr_client_id = *(int*)curr_client->value;
+            int curr_client_id = *((int*)&curr_client->value);
 
             if(FD_ISSET(curr_client_id, &current_clients))
             {
-                packet_t* req = read_packet_from_fd(curr_client_id);
-                if(req == NULL)
+                packet_t* req = read_packet_from_fd(curr_client_id, &error);
+                if(error == 0)
                 {
-                    // chiudo la connessione
-                    curr_client = curr_client->next;
-                    ll_remove_node(&clients_connected, curr_client);
+                    if(req->header.op == OP_CLOSE_CONN)
+                    {
+                        // chiudo la connessione
+                        curr_client = curr_client->next;
+                        ll_remove_node(&clients_connected, curr_client);
 
-                    LOCK_MUTEX(&clients_set_mutex);
-                    FD_CLR(curr_client_id, &clients_connected_set);
-                    UNLOCK_MUTEX(&clients_set_mutex);
+                        LOCK_MUTEX(&clients_set_mutex);
+                        FD_CLR(curr_client_id, &clients_connected_set);
+                        UNLOCK_MUTEX(&clients_set_mutex);
 
-                    continue;
-                }
-                else
-                {
+                        free(req);
+                        continue;
+                    }
+
                     enqueue_safe_m(&requests_queue, req, &requests_queue_mutex);
                 }
+
+                // we ignore failed packets returned by the read
             }
 
             curr_client = curr_client->next;
@@ -389,12 +411,13 @@ void* handle_clients_packets()
         // read packets
     }
 
+    printf("Quitting packet reader.\n");
     return NULL;
 }
 
 int initialize_reader()
 {
-    CHECK_ERROR(pthread_create(&thread_accepter_id, NULL, &handle_clients_packets, NULL) != 0, ERR_SERVER_INIT_READER);
+    CHECK_ERROR(pthread_create(&thread_reader_id, NULL, &handle_clients_packets, NULL) != 0, ERR_SERVER_INIT_READER);
 
     reader_initialized = TRUE;
     return SERVER_OK;
@@ -467,17 +490,25 @@ int wait_server_end()
         pthread_join(thread_workers_ids[i], NULL);
     }
 
+    // The thread might be locked in a wait
+    if(closing_signal == S_FAST)
+    {
+        printf("Joining reader thread.\n");
+        pthread_cond_signal(&clients_connected_cond);
+        pthread_join(thread_reader_id, NULL);
+    }
+
     printf("Freeing memory.\n");
     free(thread_workers_ids);
 
-    pthread_mutex_lock(&clients_list_mutex);
+    LOCK_MUTEX(&clients_list_mutex);
     while(ll_count(&clients_connected) > 0)
     {
+        printf("count: %lu.\n", ll_count(&clients_connected));
         void* client_id = NULL;
         ll_remove_first(&clients_connected, client_id);
-        free(client_id);
     }
-    pthread_mutex_unlock(&clients_list_mutex);
+    UNLOCK_MUTEX(&clients_list_mutex);
 
     printf("Closing socket and removing it.\n");
     close(server_socket_id);

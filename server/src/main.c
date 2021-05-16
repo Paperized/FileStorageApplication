@@ -20,34 +20,6 @@ void print_server_error_code(int code)
             break;
     }
 }
-#include <unistd.h>
-void* example_fill_queue(void* param)
-{
-    while(get_quit_signal() == S_NONE)
-    {
-        pthread_mutex_lock(&clients_list_mutex);
-
-        /*
-        int to_add = 10;
-        enqueue_m(&clients_connected, &to_add);
-        enqueue_m(&clients_connected, &to_add);
-        enqueue_m(&clients_connected, &to_add);
-        enqueue_m(&clients_connected, &to_add);
-
-        if(count_q(&clients_connected) > 4)
-        {
-            pthread_mutex_unlock(&clients_queue_mutex);
-        }
-
-        pthread_cond_signal(&request_received_cond);
-        */
-        pthread_mutex_unlock(&clients_list_mutex);
-        sleep(1);
-    }
-
-    printf("Quitting fill example thread.\n");
-    return NULL;
-}
 
 int main()
 {
@@ -70,9 +42,6 @@ int main()
 
     printf("Server initialized succesfully!\n");
 
-    pthread_t x;
-    pthread_create(&x, NULL, &example_fill_queue, NULL);
-
     int exit_status = start_server();
     if(exit_status != SERVER_OK)
     {
@@ -80,8 +49,6 @@ int main()
         print_server_error_code(status);
         return -1;
     }
-
-    pthread_join(x, NULL);
 
     return 0;
 }
