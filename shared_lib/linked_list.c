@@ -9,12 +9,13 @@ int malloc_node(node_t* node, size_t size)
     if(node == NULL)
         return -1;
 
-    node->value = malloc(sizeof(size));
+    /*
+    node->value = malloc(size);
     if(node->value == NULL)
     {
         free(node);
         return -1;
-    }
+    }*/
 
     return 0;
 }
@@ -29,7 +30,7 @@ int ll_add(linked_list_t* ll, void* value)
     node_t* new_item = NULL;
     CHECK_MALLOC_NODE(new_item, ll->mem_value_size);
 
-    memcpy(new_item->value, value, ll->mem_value_size);
+    new_item->value = value;
     new_item->next = ll->head;
     ll->head = new_item;
 

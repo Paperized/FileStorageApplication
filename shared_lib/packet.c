@@ -29,7 +29,7 @@ void* read_n_bytes_from_fd(int fd, ssize_t size)
     return buf;
 }
 
-int write_n_bytes_to_fd(int fd, void* buf, ssize_t size)
+int write_n_bytes_to_fd(int fd, char* buf, ssize_t size)
 {
     ssize_t curr_bytes_wrote = 0;
 
@@ -47,7 +47,7 @@ int write_n_bytes_to_fd(int fd, void* buf, ssize_t size)
             curr_bytes_wrote += n_wrote;
     }
 
-    return buf;
+    return curr_bytes_wrote;
 }
 
 // Null connessione chiusa, != NULL packet ricevuto
