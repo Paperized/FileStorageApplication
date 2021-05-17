@@ -12,4 +12,6 @@ typedef enum server_packet_op {
     OP_CLOSE_CONN
 } server_packet_op_t;
 
+#define CONFIG_MAX_SOCKET_NAME_LENGTH 64
+
 #endif

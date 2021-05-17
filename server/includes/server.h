@@ -5,10 +5,7 @@
 #include "packet.h"
 #include "config_params.h"
 #include "queue.h"
-
-#define TRUE 1
-#define FALSE 0
-typedef int bool_t;
+#include "utils.h"
 
 #define S_NONE 0
 #define S_SOFT 1

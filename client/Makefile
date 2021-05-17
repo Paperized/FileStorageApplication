@@ -6,8 +6,11 @@ BDIR = ./bin
 
 LIBS = -pthread
 
-bin/client: obj/file_storage_api.o obj/queue.o obj/packet.o obj/linked_list.o obj/server_api_utils.o obj/utils.o
+bin/client: obj/file_storage_api.o obj/queue.o obj/packet.o obj/linked_list.o obj/server_api_utils.o obj/utils.o obj/client_params.o
 	$(CC) $(CFLAGS) src/main.c -o $@.out $^ $(LIBS)
+
+obj/client_params.o: src/client_params.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 obj/file_storage_api.o: src/file_storage_api.c
 	$(CC) $(CFLAGS) -c -o $@ $<

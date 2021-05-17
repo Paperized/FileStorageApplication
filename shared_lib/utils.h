@@ -1,6 +1,6 @@
 #ifndef _UTILS_H_
 #define _UTILS_H_
 
-#define TEST_EMPTY 0
+typedef enum bool { FALSE, TRUE } bool_t;
 
 #endif

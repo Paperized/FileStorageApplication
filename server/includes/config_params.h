@@ -1,14 +1,15 @@
 #ifndef _CONFIG_PARAMS_
 #define _CONFIG_PARAMS_
 
+#include "server_api_utils.h"
+
 #define ERR_READING_CONFIG -1
 
-#define CONFIG_MAX_SOCKET_NAME_LENGTH 64
 #define CONFIG_FILE_NAME "config.txt";
 #define CONFIG_PATH_FILE "./" CONFIG_FILE_NAME;
 
 typedef struct configuration_params {
-    unsigned thread_workers;
+    unsigned int thread_workers;
     unsigned int bytes_storage_available;
     char socket_name[CONFIG_MAX_SOCKET_NAME_LENGTH];
     unsigned int max_file_uploadable;
