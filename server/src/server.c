@@ -8,13 +8,13 @@
 #include "server.h"
 #include "server_api_utils.h"
 
-#define LOCK_MUTEX(m) pthread_mutex_lock(m); \
-                        printf("Lockato in riga: %d in %s ", __LINE__, __FILE__); \
-                        printf(".\n")
+#define LOCK_MUTEX(m) pthread_mutex_lock(m)
+                        //printf("Lockato in riga: %d in %s ", __LINE__, __FILE__); \
+                        //printf(".\n")
 
-#define UNLOCK_MUTEX(m) pthread_mutex_unlock(m); \
-                        printf("Unlockato in riga: %d in %s ", __LINE__, __FILE__); \
-                        printf(".\n")
+#define UNLOCK_MUTEX(m) pthread_mutex_unlock(m)
+                        //printf("Unlockato in riga: %d in %s ", __LINE__, __FILE__); \
+                        //printf(".\n")
 
 #define SET_VAR_MUTEX(var, value, m)  pthread_mutex_lock(m); \
                                       var = value; \
@@ -47,12 +47,12 @@ pthread_mutex_t clients_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t clients_set_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_cond_t clients_connected_cond = PTHREAD_COND_INITIALIZER;
-linked_list_t clients_connected = INIT_EMPTY_LL(sizeof(int));
+linked_list_t clients_connected = INIT_EMPTY_LL;
 fd_set clients_connected_set;
 
 pthread_cond_t request_received_cond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t requests_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-queue_t requests_queue = INIT_EMPTY_QUEUE(sizeof(packet_t*));
+queue_t requests_queue = INIT_EMPTY_QUEUE;
 
 pthread_mutex_t quit_signal_mutex = PTHREAD_MUTEX_INITIALIZER;
 quit_signal_t quit_signal = S_NONE;
@@ -98,12 +98,12 @@ void* handle_client_requests(void* data)
     quit_signal_t quit_signal;
     while((quit_signal = get_quit_signal()) == S_NONE)
     {
-        pthread_mutex_lock(&requests_queue_mutex);
+        LOCK_MUTEX(&requests_queue_mutex);
         while(count_q(&requests_queue) == 0)
         {
             if(pthread_cond_wait(&request_received_cond, &requests_queue_mutex) != 0)
             {
-                pthread_mutex_unlock(&requests_queue_mutex);
+                UNLOCK_MUTEX(&requests_queue_mutex);
                 continue;
             }
 
@@ -115,7 +115,7 @@ void* handle_client_requests(void* data)
             break;
 
         packet_t* request = cast_to(packet_t*, dequeue(&requests_queue));
-        pthread_mutex_unlock(&requests_queue_mutex);
+        UNLOCK_MUTEX(&requests_queue_mutex);
 
         if(request == NULL)
         {
@@ -124,12 +124,45 @@ void* handle_client_requests(void* data)
         }
 
         printf("[W/%lu] Handling client with id: %d.\n", curr, request->header.fd_sender);
+        int error_read;
 
         // Handle the message
         switch(request->header.op)
         {
             case OP_OPEN_FILE:
                 printf("[W/%lu] OP_OPEN_FILE request operation.\n", curr);
+                int* flags = read_data(request, sizeof(int), &error_read);
+                if(error_read < 0)
+                {
+                    printf("Error reading flags [%d].\n", error_read);
+                    break;
+                }
+
+                printf("%d.\n", *flags);
+                if((*flags) & OP_CREATE)
+                {
+                    printf("Flag OP_CREATE set.\n");
+                }
+
+                char* pathname = read_data(request, request->header.len - sizeof(int), &error_read);
+                if(error_read < 0)
+                {
+                    printf("Error reading pathname [%d].\n", error_read);
+                    free(flags);
+                    break;
+                }
+
+                printf("Pathname %s.\n", pathname);
+
+                packet_t* response = create_packet(OP_OPEN_FILE);
+                if(send_packet_to_fd(request->header.fd_sender, response) != 0)
+                {
+                    printf("fallito.\n");
+                }
+
+                destroy_packet(response);
+                free(flags);
+                free(pathname);
                 break;
 
             case OP_REMOVE_FILE:
@@ -158,9 +191,8 @@ void* handle_client_requests(void* data)
         }
 
         // test sleep
-        sleep(1);
 
-        free(request);
+        destroy_packet(request);
         printf("[W/%lu] Finished handling.\n", curr);
     }
 
@@ -210,15 +242,15 @@ void* handle_signals(void* params)
             printf("\nQuitting with signal: S_NONE\n");
             break;
 
-                case S_SOFT:
+        case S_SOFT:
             printf("\nQuitting with signal: S_SOFT\n");
             break;
 
-                    case S_FAST:
+        case S_FAST:
             printf("\nQuitting with signal: S_FAST\n");
             break;
 
-                    default:
+        default:
             printf("\nQuitting with signal: ??\n");
             break;
     }
@@ -298,7 +330,7 @@ void* handle_connections(void* params)
         // add to queue
         
         LOCK_MUTEX(&clients_list_mutex);
-        add_failed = ll_add(&clients_connected, &new_id) != 0;
+        add_failed = ll_add(&clients_connected, (void*)new_id) != 0;
         UNLOCK_MUTEX(&clients_list_mutex);
 
         // if something go wrong with the queue we close the connection right away
@@ -322,6 +354,8 @@ void* handle_connections(void* params)
                 FD_SET(new_id, &clients_connected_set);
             }
             UNLOCK_MUTEX(&clients_set_mutex);
+
+            pthread_cond_signal(&clients_connected_cond);
         }
     }
 
@@ -353,21 +387,20 @@ void* handle_clients_packets()
         while((n_clients = ll_count(&clients_connected)) == 0)
         {
             pthread_cond_wait(&clients_connected_cond, &clients_list_mutex);
-            
+
             BREAK_ON_FAST_QUIT(quit_signal, &clients_list_mutex);
         }
 
         if(quit_signal == S_FAST)
             break;
 
+        int max_fd_clients = ll_int_get_max(&clients_connected);
         UNLOCK_MUTEX(&clients_list_mutex);
-
-        printf("Count: %lu", n_clients);
 
         fd_set current_clients;
         GET_VAR_MUTEX(clients_connected_set, current_clients, &clients_set_mutex);
 
-        int res = select(n_clients + 1, &current_clients, NULL, NULL, &tv);
+        int res = select(max_fd_clients + 1, &current_clients, NULL, NULL, &tv);
         if(res <= 0)
             continue;
 
@@ -377,28 +410,37 @@ void* handle_clients_packets()
         int error;
         while(curr_client != NULL)
         {
-            int curr_client_id = *((int*)&curr_client->value);
+            int curr_client_id = (int)curr_client->value;
 
             if(FD_ISSET(curr_client_id, &current_clients))
             {
+                printf("reading packet %d.\n", curr_client_id);
                 packet_t* req = read_packet_from_fd(curr_client_id, &error);
+
                 if(error == 0)
                 {
                     if(req->header.op == OP_CLOSE_CONN)
                     {
                         // chiudo la connessione
-                        curr_client = curr_client->next;
-                        ll_remove_node(&clients_connected, curr_client);
-
                         LOCK_MUTEX(&clients_set_mutex);
                         FD_CLR(curr_client_id, &clients_connected_set);
                         UNLOCK_MUTEX(&clients_set_mutex);
+
+                        node_t* temp = curr_client->next;
+                        ll_remove_node(&clients_connected, curr_client);
+                        curr_client = temp;
 
                         free(req);
                         continue;
                     }
 
-                    enqueue_safe_m(&requests_queue, req, &requests_queue_mutex);
+                    LOCK_MUTEX(&requests_queue_mutex);
+
+                    enqueue_m(&requests_queue, req);
+                    if(count_q(&requests_queue) == 1)
+                        pthread_cond_signal(&request_received_cond);
+
+                    UNLOCK_MUTEX(&requests_queue_mutex);
                 }
 
                 // we ignore failed packets returned by the read
@@ -407,8 +449,6 @@ void* handle_clients_packets()
             curr_client = curr_client->next;
         }
         UNLOCK_MUTEX(&clients_list_mutex);
-        
-        // read packets
     }
 
     printf("Quitting packet reader.\n");
@@ -548,8 +588,10 @@ int init_server()
     CHECK_ERROR(server_socket_id == -1, ERR_SOCKET_FAILED);
 
     struct sockaddr_un sa;
-    strncpy(sa.sun_path, loaded_configuration.socket_name, CONFIG_MAX_SOCKET_NAME_LENGTH);
+    strncpy(sa.sun_path, loaded_configuration.socket_name, MAX_PATHNAME_API_LENGTH);
     sa.sun_family = AF_UNIX;
+
+    remove(loaded_configuration.socket_name);
 
     CHECK_ERROR(bind(server_socket_id, (struct sockaddr*)&sa, sizeof(sa)) == -1, ERR_SOCKET_BIND_FAILED);
     CHECK_ERROR(listen(server_socket_id, loaded_configuration.backlog_sockets_num) == -1, ERR_SOCKET_LISTEN_FAILED);

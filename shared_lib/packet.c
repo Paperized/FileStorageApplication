@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include "server_api_utils.h"
 
 #define CHECK_PACKET2(p) if(p == NULL) return 0
@@ -78,16 +79,15 @@ packet_t* read_packet_from_fd(int fd, int* error)
     packet_op* op = read_n_bytes_from_fd(fd, sizeof(packet_op), error);
     if(*error == -1)
     {
+        printf("Error reading op packet.\n");
         return NULL;
     }
 
     // connessione chiusa
     if(op == NULL)
     {
-        packet_t* closed = malloc(sizeof(packet_t));
-        closed->header.op = OP_CLOSE_CONN;
-        closed->header.len = 0;
-        closed->body.content = NULL;
+        packet_t* closed = create_packet(OP_CLOSE_CONN);
+        closed->header.fd_sender = fd;
         return closed;
     }
 
@@ -117,8 +117,7 @@ packet_t* read_packet_from_fd(int fd, int* error)
         *len = 0;
     }
 
-    packet_t* new_packet = malloc(sizeof(packet_t));
-    new_packet->header.op = *op;
+    packet_t* new_packet = create_packet(*op);
     new_packet->header.fd_sender = fd;
     new_packet->header.len = *len;
     new_packet->body.content = content;
@@ -134,8 +133,8 @@ int send_packet_to_fd(int fd, packet_t* p)
     size_t packet_length = sizeof(packet_op) + sizeof(packet_len) + p->header.len;
     char* buffer = malloc(packet_length);
     memcpy(buffer, &p->header.op, sizeof(packet_op));
-    memcpy(buffer + sizeof(packet_op), &p->header.len, sizeof(packet_len));
-    memcpy(buffer + sizeof(packet_op) + sizeof(packet_len), &p->body.content, p->header.len);
+    memcpy((buffer + 4), &p->header.len, 4);
+    memcpy((buffer + 8), p->body.content, p->header.len);
 
     int res = write_n_bytes_to_fd(fd, buffer, packet_length);
     free(buffer);
@@ -191,7 +190,6 @@ void* read_data(packet_t* p, size_t size, int* error)
     char* current_buffer = p->body.content;
     packet_len buff_size = p->header.len;
     packet_len cursor_index = p->body.cursor_index;
-    char* readed_data = NULL;
 
     if((cursor_index + size) > buff_size)
     {
@@ -199,14 +197,14 @@ void* read_data(packet_t* p, size_t size, int* error)
         return NULL;
     }
 
-    readed_data = malloc(size);
+    char* readed_data = malloc(size);
     if(readed_data == NULL)
     {
         *error = -3;
         return NULL;
     }
 
-    memcpy(current_buffer + cursor_index, readed_data, size);
+    memcpy(readed_data, (current_buffer + cursor_index), size);
     p->body.cursor_index = cursor_index + size;
     return readed_data;
 }
@@ -227,4 +225,26 @@ int is_packet_valid(packet_t* p)
     }
 
     return 0;
+}
+
+packet_t* create_packet(packet_op op)
+{
+    packet_t* new_p = malloc(sizeof(packet_t));
+
+    new_p->header.op = op;
+    new_p->header.len = 0;
+    new_p->header.fd_sender = -1;
+    new_p->body.cursor_index = 0;
+
+    return new_p;
+}
+
+void print_packet(packet_t* p)
+{
+    if(p == NULL) return;
+
+    printf("Packet op: %ul.\n", p->header.op);
+    printf("Packet body length: %ul.\n", p->header.len);
+    printf("Packet sender: %d.\n", p->header.fd_sender);
+    printf("Packet cursor index: %ul.\n", p->body.cursor_index);
 }

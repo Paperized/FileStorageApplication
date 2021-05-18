@@ -1,6 +1,7 @@
 #ifndef _PACKET_H_
 #define _PACKET_H_
 
+#include <stdlib.h>
 #include <stdint.h>
 
 #define F_CREATE 0
@@ -27,6 +28,7 @@ typedef struct packet_t {
 
 #define INIT_EMPTY_PACKET(op) { { op, -1, 0 }, { (void*)0, 0 } }
 
+packet_t* create_packet(packet_op op);
 packet_t* read_packet_from_fd(int fd, int* error);
 int send_packet_to_fd(int id, packet_t* p);
 int write_data(packet_t* p, const void* data, size_t size);
@@ -34,5 +36,6 @@ void* read_data(packet_t* p, size_t size, int* error);
 void destroy_packet(packet_t* p);
 
 int is_packet_valid(packet_t* p);
+void print_packet(packet_t* p);
 
 #endif

@@ -27,9 +27,9 @@ int load_configuration_params(configuration_params* params)
         return ERR_READING_CONFIG;
     }
 
-    char socketName[CONFIG_MAX_SOCKET_NAME_LENGTH];
+    char socketName[MAX_PATHNAME_API_LENGTH];
     fscanf(fptr, "SERVER_SOCKET_NAME=%s\n", socketName);
-    strncpy(params->socket_name, socketName, CONFIG_MAX_SOCKET_NAME_LENGTH);
+    strncpy(params->socket_name, socketName, MAX_PATHNAME_API_LENGTH);
 
     fscanf(fptr, "SERVER_THREAD_WORKERS=%u\n", &params->thread_workers);
     fscanf(fptr, "SERVER_BYTE_STORAGE_AVAILABLE=%u\n", &params->bytes_storage_available);

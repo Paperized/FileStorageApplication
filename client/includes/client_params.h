@@ -8,7 +8,7 @@
 typedef struct client_params {
     bool_t print_help;
 
-    char server_socket_name[CONFIG_MAX_SOCKET_NAME_LENGTH];
+    char server_socket_name[MAX_PATHNAME_API_LENGTH];
 
     char* dirname_file_sendable;
     int max_file_sendable;

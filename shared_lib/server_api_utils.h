@@ -12,6 +12,11 @@ typedef enum server_packet_op {
     OP_CLOSE_CONN
 } server_packet_op_t;
 
-#define CONFIG_MAX_SOCKET_NAME_LENGTH 64
+typedef enum server_open_file_options {
+    OP_CREATE = 0x1,
+    OP_LOCK = 0x2
+} server_open_file_options_t;
+
+#define MAX_PATHNAME_API_LENGTH 108
 
 #endif

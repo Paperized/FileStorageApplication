@@ -18,7 +18,7 @@ int enqueue_safe(queue_t* queue, void* value, pthread_mutex_t* m);
 void* dequeue_safe(queue_t* queue, pthread_mutex_t* m);
 void empty_safe(queue_t* queue, pthread_mutex_t* m);
 
-#define INIT_EMPTY_QUEUE(mem_per_item) { INIT_EMPTY_LL(mem_per_item) }
+#define INIT_EMPTY_QUEUE { INIT_EMPTY_LL }
 #define enqueue_m(queue, value) enqueue(queue, (void*) value)
 #define enqueue_safe_m(queue, value, m) enqueue_safe(queue, (void*) value, m)
 #define cast_to(type, value) (type)value

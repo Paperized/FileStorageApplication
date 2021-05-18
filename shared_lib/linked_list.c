@@ -1,22 +1,14 @@
 #include <string.h>
 #include "linked_list.h"
 
-#define CHECK_MALLOC_NODE(output, size) if(malloc_node(output, size) != 0) return -1;
+#define CHECK_MALLOC_NODE(output) if(malloc_node(output) != 0) return -1;
 
-int malloc_node(node_t* node, size_t size)
+int malloc_node(node_t** node)
 {
-    node = malloc(sizeof(node_t));
+    *node = malloc(sizeof(node_t));
     if(node == NULL)
         return -1;
-
-    /*
-    node->value = malloc(size);
-    if(node->value == NULL)
-    {
-        free(node);
-        return -1;
-    }*/
-
+        
     return 0;
 }
 
@@ -28,7 +20,7 @@ size_t ll_count(linked_list_t* ll)
 int ll_add(linked_list_t* ll, void* value)
 {
     node_t* new_item = NULL;
-    CHECK_MALLOC_NODE(new_item, ll->mem_value_size);
+    CHECK_MALLOC_NODE(&new_item);
 
     new_item->value = value;
     new_item->next = ll->head;
@@ -66,7 +58,7 @@ void ll_remove_first(linked_list_t* ll, void* value)
     ll->count -= 1;
 }
 
-void ll_remove_last(linked_list_t* ll, void* value)
+void ll_remove_last(linked_list_t* ll, void** value)
 {
     if(ll->count <= 0)
     {
@@ -75,7 +67,7 @@ void ll_remove_last(linked_list_t* ll, void* value)
     }
 
     node_t* last = ll->tail;
-    value = last->value;
+    *value = last->value;
 
     if(last == ll->head)
     {
@@ -154,3 +146,20 @@ int ll_remove_node(linked_list_t* ll, node_t* node)
     return 0;
 }
 
+int ll_int_get_max(linked_list_t* ll)
+{
+    if(ll == NULL) return -1;
+
+    int max = -1;
+    node_t* curr = ll->head;
+    while(curr != NULL)
+    {
+        int new_val = (int)curr->value;
+        if(max < new_val)
+            max = new_val;
+
+        curr = curr->next;
+    }
+
+    return max;
+}

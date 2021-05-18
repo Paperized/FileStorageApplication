@@ -1,4 +1,8 @@
+#include <unistd.h>
+#include <string.h>
+
 #include "client_params.h"
+
 
 void init_client_params(client_params_t* params)
 {
@@ -75,7 +79,10 @@ int read_args_client_params(int argc, char** argv, client_params_t* params)
             params->print_help = TRUE;
             return 0;
         case 'f':
-            
+            if(optarg != NULL)
+            {
+                strncpy(params->server_socket_name, optarg, MAX_PATHNAME_API_LENGTH);
+            }
             break;
         case 'w':
             break;

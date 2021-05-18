@@ -7,29 +7,29 @@ BDIR = ./bin
 LIBS = -pthread
 
 bin/server: obj/config_params.o obj/server.o obj/queue.o obj/packet.o obj/linked_list.o obj/server_api_utils.o obj/utils.o
-	$(CC) $(CFLAGS) src/main.c -o $@.out $^ $(LIBS)
+	$(CC) $(CFLAGS) -g src/main.c -o $@.out $^ $(LIBS)
 	test -f $(BDIR)/config.txt || $(MAKE) force_generate_config
 
 obj/config_params.o: src/config_params.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -g -c -o $@ $<
 
 obj/server.o: src/server.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -g -c -o $@ $<
 
 obj/queue.o: ../shared_lib/queue.c
-	$(CC) $(CFLAGS) -c -o $@ $< 
+	$(CC) $(CFLAGS) -g -c -o $@ $< 
 
 obj/linked_list.o: ../shared_lib/linked_list.c
-	$(CC) $(CFLAGS) -c -o $@ $< 
+	$(CC) $(CFLAGS) -g -c -o $@ $< 
 
 obj/packet.o: ../shared_lib/packet.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -g -c -o $@ $<
 
 obj/server_api_utils.o: ../shared_lib/server_api_utils.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -g -c -o $@ $<
 
 obj/utils.o: ../shared_lib/utils.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -g -c -o $@ $<
 
 clean:
 	rm -f $(ODIR)/* *~ core $(INCDIR)/*~
