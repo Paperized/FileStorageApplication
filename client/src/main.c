@@ -39,7 +39,7 @@ int main(int argc, char **argv)
 
         printf("Sending open file request (%s).\n", params.server_socket_name);
         openFile(params.server_socket_name, OP_CREATE | OP_LOCK);
-
+        
         sleep(2);
         int closed = closeConnection("../server/bin/socket");
         if(closed != 0)
