@@ -149,6 +149,68 @@ void destroy_packet(packet_t* p)
     free(p);
 }
 
+int write_data(packet_t* p, const void* data, size_t size)
+{
+    if(data == NULL)
+        return -1;
+
+    char* current_buffer = p->body.content;
+    packet_len buff_size = p->header.len;
+
+    if(buff_size == 0)
+    {
+        current_buffer = malloc(size);
+        if(current_buffer == NULL)
+        {
+            return -2;
+        }
+    }
+    else
+    {
+        current_buffer = realloc(current_buffer, buff_size + size);
+        if(current_buffer == NULL)
+        {
+            return -2;
+        }
+    }
+
+    memcpy(current_buffer + buff_size, data, size);
+    p->body.content = current_buffer;
+    p->header.len = buff_size + size;
+    return 0;
+}
+
+void* read_data(packet_t* p, size_t size, int* error)
+{
+    if(p == NULL)
+    {
+        *error = -1;
+        return NULL;
+    }
+
+    char* current_buffer = p->body.content;
+    packet_len buff_size = p->header.len;
+    packet_len cursor_index = p->body.cursor_index;
+    char* readed_data = NULL;
+
+    if((cursor_index + size) > buff_size)
+    {
+        *error = -2;
+        return NULL;
+    }
+
+    readed_data = malloc(size);
+    if(readed_data == NULL)
+    {
+        *error = -3;
+        return NULL;
+    }
+
+    memcpy(current_buffer + cursor_index, readed_data, size);
+    p->body.cursor_index = cursor_index + size;
+    return readed_data;
+}
+
 int is_packet_valid(packet_t* p)
 {
     packet_op op = p->header.op;

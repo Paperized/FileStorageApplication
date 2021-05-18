@@ -8,6 +8,32 @@
 #include "server_api_utils.h"
 #include "packet.h"
 
+#define CLEANUP_PACKETS(sent, received) destroy_packet(sent); \
+                                        destroy_packet(received); \
+                                        free(received) 
+
+#define CHECK_WRITE_PACKET(res) if(res == -1) { \
+                                    printf("You cannot write in a NULL packet.\n"); \
+                                    return -1; \
+                                } \
+                                else if(res == -2) { \
+                                    printf("Malloc or realloc failed during write packet. No memory available.\n"); \
+                                    return -1; \
+                                }
+
+#define CHECK_READ_PACKET(res) if(res == -1) { \
+                                    printf("You cannot read in a NULL packet.\n"); \
+                                    return -1; \
+                                } \
+                                else if(res == -2) { \
+                                    printf("Malloc or realloc failed during read packet. No memory available.\n"); \
+                                    return -1; \
+                                } \
+                                else if(res == -3) { \
+                                    printf("Your cursor reached out of bound in the packet during a read.\n"); \
+                                    return -1; \
+                                }
+
 int fd_server;
 
 // NULL -> error
@@ -53,8 +79,7 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 
 int closeConnection(const char* sockname)
 {
-    int result = close(/*??????*/1);
-
+    int result = close(fd_server);
     if(result == -1)
     {
         // set errno
@@ -66,13 +91,15 @@ int closeConnection(const char* sockname)
 int openFile(const char* pathname, int flags)
 {
     packet_t of_packet = INIT_EMPTY_PACKET(OP_OPEN_FILE);
-    // add integer
+    int error;
+    error = write_data(&of_packet, &flags, sizeof(int));
+    CHECK_WRITE_PACKET(error);
 
     int result = send_packet_to_fd(fd_server, &of_packet);
     if(result == -1)
     {
         // set errno
-
+        destroy_packet(&of_packet);
         return -1;
     }
 
@@ -81,20 +108,28 @@ int openFile(const char* pathname, int flags)
     if(error == -1)
     {
         // set errno
+        destroy_packet(&of_packet);
+        return -1;
+    }
+
+    if(response->header.op != OP_OPEN_FILE)
+    {
+        CLEANUP_PACKETS(&of_packet, response);
         return -1;
     }
 
     // leggo la risposta
-
-    free(response);
+    CLEANUP_PACKETS(&of_packet, response);
     return 0;
 }
 
 int readFile(const char* pathname, void** buf, size_t* size)
 {
     packet_t rf_packet = INIT_EMPTY_PACKET(OP_READ_FILE);
-    // add integer
-
+    int error;
+    error = write_data(&rf_packet, pathname, strnlen(pathname, 100) * sizeof(char)); // set a constant later 
+    CHECK_WRITE_PACKET(error);
+    
     int result = send_packet_to_fd(fd_server, &rf_packet);
     if(result == -1)
     {
@@ -108,30 +143,43 @@ int readFile(const char* pathname, void** buf, size_t* size)
     if(error == -1)
     {
         // set errno
+        destroy_packet(&rf_packet);
         return -1;
     }
 
     // leggo la risposta
-    size = malloc(sizeof(size_t));
+    if(response->header.op != OP_READ_FILE)
+    {
+        /* set errno */
+        CLEANUP_PACKETS(&rf_packet, response);
+        return -1;
+    }
+
+    char* file_readed = read_data(response, response->header.len, &error);
+    if(error < 0)
+    {
+        CLEANUP_PACKETS(&rf_packet, response);
+        CHECK_READ_PACKET(error);
+    }
+
+    *buf = file_readed;
     *size = response->header.len;
-
-    //estraggo la stringa e la setto a buf
-    // buf = get_string(response);
-
-    free(response);
+    CLEANUP_PACKETS(&rf_packet, response);
     return 0;
 }
 
 int writeFile(const char* pathname, const char* dirname)
 {
     packet_t rf_packet = INIT_EMPTY_PACKET(OP_WRITE_FILE);
-    // add string
+    int error;
+    error = write_data(&rf_packet, pathname, strnlen(pathname, 100) * sizeof(char)); // set a constant later 
+    CHECK_WRITE_PACKET(error);
 
     int result = send_packet_to_fd(fd_server, &rf_packet);
     if(result == -1)
     {
         // set errno
-
+        destroy_packet(&rf_packet);
         return -1;
     }
 
@@ -140,26 +188,33 @@ int writeFile(const char* pathname, const char* dirname)
     if(error == -1)
     {
         // set errno
+        destroy_packet(&rf_packet);
         return -1;
     }
 
-    // leggo la risposta
-    // se la risposta è positiva continuo altrimenti -1
+    if(response->header.op != OP_WRITE_FILE)
+    {
+        // set errno
+        CLEANUP_PACKETS(&rf_packet, response);
+        return -1;
+    }
 
-    free(response);
+    CLEANUP_PACKETS(&rf_packet, response);
     return 0;
 }
 
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname)
 {
     packet_t rf_packet = INIT_EMPTY_PACKET(OP_APPEND_FILE);
-    // add buffer
+    int error;
+    error = write_data(&rf_packet, buf, size);
+    CHECK_WRITE_PACKET(error);
 
     int result = send_packet_to_fd(fd_server, &rf_packet);
     if(result == -1)
     {
         // set errno
-
+        destroy_packet(&rf_packet);
         return -1;
     }
 
@@ -168,27 +223,33 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     if(error == -1)
     {
         // set errno
+        destroy_packet(&rf_packet);
         return -1;
     }
 
+    if(response->header.op != OP_APPEND_FILE)
+    {
+        // set errno
+        CLEANUP_PACKETS(&rf_packet, response);
+        return -1;
+    }
 
-    //estraggo la stringa e la setto a buf
-    // buf = get_string(response);
-
-    free(response);
+    CLEANUP_PACKETS(&rf_packet, response);
     return 0;
 }
 
 int closeFile(const char* pathname)
 {
     packet_t rf_packet = INIT_EMPTY_PACKET(OP_CLOSE_FILE);
-    // add integer
+    int error;
+    error = write_data(&rf_packet, pathname, strnlen(pathname, 100) * sizeof(char)); // set a constant later 
+    CHECK_WRITE_PACKET(error);
 
     int result = send_packet_to_fd(fd_server, &rf_packet);
     if(result == -1)
     {
         // set errno
-
+        destroy_packet(&rf_packet);
         return -1;
     }
 
@@ -197,26 +258,34 @@ int closeFile(const char* pathname)
     if(error == -1)
     {
         // set errno
+        destroy_packet(&rf_packet);
         return -1;
     }
 
     // leggo la risposta
+    if(response->header.op != OP_CLOSE_FILE)
+    {
+        CLEANUP_PACKETS(&rf_packet, response);
+        return -1;
+    }
 
-
-    free(response);
+    CLEANUP_PACKETS(&rf_packet, response);
     return 0;
 }
 
 int removeFile(const char* pathname)
 {
     packet_t rf_packet = INIT_EMPTY_PACKET(OP_REMOVE_FILE);
-    // add string
+    int error;
+    error = write_data(&rf_packet, pathname, strnlen(pathname, 100) * sizeof(char)); // set a constant later 
+    CHECK_WRITE_PACKET(error);
 
     int result = send_packet_to_fd(fd_server, &rf_packet);
     if(result == -1)
     {
         // set errno
         return -1;
+        destroy_packet(&rf_packet);
     }
 
     int error;
@@ -224,12 +293,17 @@ int removeFile(const char* pathname)
     if(error == -1)
     {
         // set errno
+        destroy_packet(&rf_packet);
         return -1;
     }
 
     // leggo la risposta
+    if(response->header.op != OP_REMOVE_FILE)
+    {
+        CLEANUP_PACKETS(&rf_packet, response);
+        return -1;
+    }
 
-
-    free(response);
+    CLEANUP_PACKETS(&rf_packet, response);
     return 0;
 }
