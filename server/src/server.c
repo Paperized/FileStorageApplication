@@ -330,7 +330,7 @@ void* handle_connections(void* params)
         // add to queue
         
         LOCK_MUTEX(&clients_list_mutex);
-        add_failed = ll_add(&clients_connected, (void*)new_id) != 0;
+        add_failed = ll_add_head(&clients_connected, (void*)new_id) != 0;
         UNLOCK_MUTEX(&clients_list_mutex);
 
         // if something go wrong with the queue we close the connection right away

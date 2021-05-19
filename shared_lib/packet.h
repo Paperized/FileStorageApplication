@@ -26,8 +26,6 @@ typedef struct packet_t {
     packet_body_t body;
 } packet_t;
 
-#define INIT_EMPTY_PACKET(op) { { op, -1, 0 }, { (void*)0, 0 } }
-
 packet_t* create_packet(packet_op op);
 packet_t* read_packet_from_fd(int fd, int* error);
 int send_packet_to_fd(int id, packet_t* p);

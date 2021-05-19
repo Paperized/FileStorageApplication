@@ -8,7 +8,8 @@ int malloc_node(node_t** node)
     *node = malloc(sizeof(node_t));
     if(node == NULL)
         return -1;
-        
+    
+    (*node)->next = NULL;
     return 0;
 }
 
@@ -17,7 +18,7 @@ size_t ll_count(linked_list_t* ll)
     return ll->count;
 }
 
-int ll_add(linked_list_t* ll, void* value)
+int ll_add_head(linked_list_t* ll, void* value)
 {
     node_t* new_item = NULL;
     CHECK_MALLOC_NODE(&new_item);
@@ -28,6 +29,26 @@ int ll_add(linked_list_t* ll, void* value)
 
     if(ll->tail == NULL)
         ll->tail = new_item;
+
+    ll->count += 1;
+    return 0;
+}
+
+int ll_add_tail(linked_list_t* ll, void* value)
+{
+    node_t* new_item = NULL;
+    CHECK_MALLOC_NODE(&new_item);
+
+    new_item->value = value;
+    if(ll->count == 0)
+    {
+        ll->head = ll->tail = new_item;
+    }
+    else
+    {
+        ll->tail->next = new_item;
+        ll->tail = new_item;
+    }
 
     ll->count += 1;
     return 0;
@@ -162,4 +183,16 @@ int ll_int_get_max(linked_list_t* ll)
     }
 
     return max;
+}
+
+void ll_empty(linked_list_t* ll)
+{
+    if(ll == NULL) return;
+
+    while(ll->count > 0)
+    {
+        void* value;
+        ll_remove_last(ll, &value);
+        free(value);
+    }
 }

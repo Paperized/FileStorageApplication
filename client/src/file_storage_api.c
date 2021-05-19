@@ -4,10 +4,10 @@
 #include <unistd.h>
 #include <time.h>
 #include <stdio.h>
-#include <errno.h>
 
 #include "file_storage_api.h"
 #include "server_api_utils.h"
+#include "client_params.h"
 #include "packet.h"
 
 #define CLEANUP_PACKETS(sent, received) destroy_packet(sent); \
@@ -35,6 +35,24 @@
                                     return -1; \
                                 }
 
+#define RET_ON_ERROR(req, res, error) if(res->header.op == OP_ERROR) \
+                                { \
+                                    server_open_file_options_t* err = read_data(res, sizeof(server_open_file_options_t), &error); \
+                                    CHECK_READ_PACKET(error); \
+                                    errno = *err; \
+                                    printf("Operation ended with error: %s.\n", get_error_str(*err)); \
+                                    free(err); \
+                                    CLEANUP_PACKETS(req, res); \
+                                    WAIT_TIMER; \
+                                    return -1; \
+                                }
+
+#define DEBUG_OK(req) if(req->header.op == OP_OK) \
+                    printf("OK.\n");
+
+#define WAIT_TIMER if(g_params.ms_between_requests > 0) \
+                    msleep(g_params.ms_between_requests)
+
 int fd_server;
 
 // NULL -> error
@@ -52,6 +70,15 @@ packet_t* wait_response_from_server(int* error)
     }
 
     return read_packet_from_fd(fd_server, error);
+}
+
+void msleep(int ms)
+{
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000;
+
+    nanosleep(&ts, NULL);
 }
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime)
@@ -114,7 +141,6 @@ int closeConnection(const char* sockname)
 
 int openFile(const char* pathname, int flags)
 {
-    pathname = "provaaaaaaaaaa";
     packet_t* of_packet = create_packet(OP_OPEN_FILE);
     int error;
     error = write_data(of_packet, &flags, sizeof(int));
@@ -138,20 +164,16 @@ int openFile(const char* pathname, int flags)
         // set errno
         printf("Failed receiving packet.\n");
         destroy_packet(of_packet);
+        WAIT_TIMER;
         return -1;
     }
 
-    if(response->header.op != OP_OPEN_FILE)
-    {
-        printf("Weird response.\n");
-        CLEANUP_PACKETS(of_packet, response);
-        return -1;
-    }
-
-    printf("FILE APERTOOOOOOOOOOOOOOO.\n");
+    RET_ON_ERROR(of_packet, response, error);
+    DEBUG_OK(response);
 
     // leggo la risposta
     CLEANUP_PACKETS(of_packet, response);
+    WAIT_TIMER;
     return 0;
 }
 
@@ -175,27 +197,25 @@ int readFile(const char* pathname, void** buf, size_t* size)
     {
         // set errno
         destroy_packet(rf_packet);
+        WAIT_TIMER;
         return -1;
     }
 
-    // leggo la risposta
-    if(response->header.op != OP_READ_FILE)
-    {
-        /* set errno */
-        CLEANUP_PACKETS(rf_packet, response);
-        return -1;
-    }
+    RET_ON_ERROR(rf_packet, response, error);
 
     char* file_readed = read_data(response, response->header.len, &error);
     if(error < 0)
     {
+
         CLEANUP_PACKETS(rf_packet, response);
-        CHECK_READ_PACKET(error);
+        WAIT_TIMER;
+        return -1;
     }
 
     *buf = file_readed;
     *size = response->header.len;
     CLEANUP_PACKETS(rf_packet, response);
+    WAIT_TIMER;
     return 0;
 }
 
@@ -203,7 +223,7 @@ int writeFile(const char* pathname, const char* dirname)
 {
     packet_t* rf_packet = create_packet(OP_WRITE_FILE);
     int error;
-    error = write_data(rf_packet, pathname, strnlen(pathname, 100) * sizeof(char)); // set a constant later 
+    error = write_data(rf_packet, pathname, strnlen(pathname, MAX_PATHNAME_API_LENGTH) * sizeof(char));
     CHECK_WRITE_PACKET(error);
 
     int result = send_packet_to_fd(fd_server, rf_packet);
@@ -219,17 +239,15 @@ int writeFile(const char* pathname, const char* dirname)
     {
         // set errno
         destroy_packet(rf_packet);
+        WAIT_TIMER;
         return -1;
     }
 
-    if(response->header.op != OP_WRITE_FILE)
-    {
-        // set errno
-        CLEANUP_PACKETS(rf_packet, response);
-        return -1;
-    }
+    RET_ON_ERROR(rf_packet, response, error);
+    DEBUG_OK(response);
 
     CLEANUP_PACKETS(rf_packet, response);
+    WAIT_TIMER;
     return 0;
 }
 
@@ -253,17 +271,15 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     {
         // set errno
         destroy_packet(rf_packet);
+        WAIT_TIMER;
         return -1;
     }
 
-    if(response->header.op != OP_APPEND_FILE)
-    {
-        // set errno
-        CLEANUP_PACKETS(rf_packet, response);
-        return -1;
-    }
+    RET_ON_ERROR(rf_packet, response, error);
+    DEBUG_OK(response);
 
     CLEANUP_PACKETS(rf_packet, response);
+    WAIT_TIMER;
     return 0;
 }
 
@@ -287,17 +303,15 @@ int closeFile(const char* pathname)
     {
         // set errno
         destroy_packet(rf_packet);
+        WAIT_TIMER;
         return -1;
     }
 
-    // leggo la risposta
-    if(response->header.op != OP_CLOSE_FILE)
-    {
-        CLEANUP_PACKETS(rf_packet, response);
-        return -1;
-    }
+    RET_ON_ERROR(rf_packet, response, error);
+    DEBUG_OK(response);
 
     CLEANUP_PACKETS(rf_packet, response);
+    WAIT_TIMER;
     return 0;
 }
 
@@ -321,16 +335,14 @@ int removeFile(const char* pathname)
     {
         // set errno
         destroy_packet(rf_packet);
+        WAIT_TIMER;
         return -1;
     }
 
-    // leggo la risposta
-    if(response->header.op != OP_REMOVE_FILE)
-    {
-        CLEANUP_PACKETS(rf_packet, response);
-        return -1;
-    }
+    RET_ON_ERROR(rf_packet, response, error);
+    DEBUG_OK(response);
 
     CLEANUP_PACKETS(rf_packet, response);
+    WAIT_TIMER;
     return 0;
 }

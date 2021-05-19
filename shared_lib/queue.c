@@ -17,7 +17,7 @@ int enqueue(queue_t* queue, void* value)
 {
     CHECK_QUEUE_PARAM(queue);
 
-    return ll_add(&queue->internal_list, value);
+    return ll_add_head(&queue->internal_list, value);
 }
 
 void* dequeue(queue_t* queue)
