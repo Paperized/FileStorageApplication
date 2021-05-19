@@ -187,7 +187,6 @@ void read_file(const char* filename)
     if(g_params.dirname_readed_files != NULL)
     {
         // save file
-        
     }
 
     free(buffer);
