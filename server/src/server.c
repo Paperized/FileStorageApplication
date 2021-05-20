@@ -7,6 +7,7 @@
 #include <signal.h>
 #include "server.h"
 #include "server_api_utils.h"
+#include "handle_client.h"
 
 #define LOCK_MUTEX(m) pthread_mutex_lock(m)
                         //printf("Lockato in riga: %d in %s ", __LINE__, __FILE__); \
@@ -72,6 +73,25 @@ pthread_t thread_reader_id;
 
 unsigned int workers_count = 0;
 
+int get_max_fid_sessions()
+{
+    int max = 0;
+    node_t* curr = clients_connected.head;
+    if(curr == NULL)
+        return max;
+
+    while(curr != NULL)
+    {
+        client_session_t* session = curr->value;
+        if(session->fd > max)
+            max = session->fd;
+
+        curr = curr->next;
+    }
+
+    return max;
+}
+
 int load_config_server()
 {
     CHECK_ERROR(load_configuration_params(&loaded_configuration) == -1, ERR_READING_CONFIG);
@@ -124,65 +144,32 @@ void* handle_client_requests(void* data)
         }
 
         printf("[W/%lu] Handling client with id: %d.\n", curr, request->header.fd_sender);
-        int error_read;
 
         // Handle the message
         switch(request->header.op)
         {
             case OP_OPEN_FILE:
-                printf("[W/%lu] OP_OPEN_FILE request operation.\n", curr);
-                int* flags = read_data(request, sizeof(int), &error_read);
-                if(error_read < 0)
-                {
-                    printf("Error reading flags [%d].\n", error_read);
-                    break;
-                }
-
-                printf("%d.\n", *flags);
-                if((*flags) & OP_CREATE)
-                {
-                    printf("Flag OP_CREATE set.\n");
-                }
-
-                char* pathname = read_data(request, request->header.len - sizeof(int), &error_read);
-                if(error_read < 0)
-                {
-                    printf("Error reading pathname [%d].\n", error_read);
-                    free(flags);
-                    break;
-                }
-
-                printf("Pathname %s.\n", pathname);
-
-                packet_t* response = create_packet(OP_OPEN_FILE);
-                if(send_packet_to_fd(request->header.fd_sender, response) != 0)
-                {
-                    printf("fallito.\n");
-                }
-
-                destroy_packet(response);
-                free(flags);
-                free(pathname);
+                handle_open_file_req(request, curr);
                 break;
 
             case OP_REMOVE_FILE:
-                printf("[W/%lu] OP_REMOVE_FILE request operation.\n", curr);
+                handle_remove_file_req(request, curr);
                 break;
 
             case OP_WRITE_FILE:
-                printf("[W/%lu] OP_WRITE_FILE request operation.\n", curr);
+                handle_write_file_req(request, curr);
                 break;
 
             case OP_APPEND_FILE:
-                printf("[W/%lu] OP_APPEND_FILE request operation.\n", curr);
+                handle_append_file_req(request, curr);
                 break;
             
             case OP_READ_FILE:
-                printf("[W/%lu] OP_READ_FILE request operation.\n", curr);
+                handle_read_file_req(request, curr);
                 break;
 
             case OP_CLOSE_FILE:
-                printf("[W/%lu] OP_CLOSE_FILE request operation.\n", curr);
+                handle_close_file_req(request, curr);
                 break;
 
             default:
@@ -328,15 +315,21 @@ void* handle_connections(void* params)
             continue;
 
         // add to queue
+
+        client_session_t* new_client = malloc(sizeof(client_session_t));
+        new_client->fd = new_id;
+        new_client->pathname_open_file = NULL;
+        new_client->flags_open_file = 0;
         
         LOCK_MUTEX(&clients_list_mutex);
-        add_failed = ll_add_head(&clients_connected, (void*)new_id) != 0;
+        add_failed = ll_add_head(&clients_connected, new_client) != 0;
         UNLOCK_MUTEX(&clients_list_mutex);
 
         // if something go wrong with the queue we close the connection right away
         if(add_failed)
         {
-            printf("Error: some problems may occourred with malloc in enqueue.\n");
+            free(new_client);
+            printf("Error: some problems may occourred with malloc in ll_add_head.\n");
             close(new_id);
 
             LOCK_MUTEX(&clients_set_mutex);
@@ -394,7 +387,7 @@ void* handle_clients_packets()
         if(quit_signal == S_FAST)
             break;
 
-        int max_fd_clients = ll_int_get_max(&clients_connected);
+        int max_fd_clients = get_max_fid_sessions();
         UNLOCK_MUTEX(&clients_list_mutex);
 
         fd_set current_clients;
@@ -410,12 +403,12 @@ void* handle_clients_packets()
         int error;
         while(curr_client != NULL)
         {
-            int curr_client_id = (int)curr_client->value;
+            client_session_t* curr_session = curr_client->value;
 
-            if(FD_ISSET(curr_client_id, &current_clients))
+            if(FD_ISSET(curr_session->fd, &current_clients))
             {
-                printf("reading packet %d.\n", curr_client_id);
-                packet_t* req = read_packet_from_fd(curr_client_id, &error);
+                printf("reading packet %d.\n", curr_session->fd);
+                packet_t* req = read_packet_from_fd(curr_session->fd, &error);
 
                 if(error == 0)
                 {
@@ -423,13 +416,17 @@ void* handle_clients_packets()
                     {
                         // chiudo la connessione
                         LOCK_MUTEX(&clients_set_mutex);
-                        FD_CLR(curr_client_id, &clients_connected_set);
+                        FD_CLR(curr_session->fd, &clients_connected_set);
                         UNLOCK_MUTEX(&clients_set_mutex);
 
                         node_t* temp = curr_client->next;
                         ll_remove_node(&clients_connected, curr_client);
                         curr_client = temp;
 
+                        if(curr_session->pathname_open_file != NULL)
+                            free(curr_session->pathname_open_file);
+                            
+                        free(curr_session);
                         free(req);
                         continue;
                     }

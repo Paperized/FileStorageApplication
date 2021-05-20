@@ -209,6 +209,65 @@ void* read_data(packet_t* p, size_t size, int* error)
     return readed_data;
 }
 
+void* read_until_end(packet_t* p, size_t* size_read, int* error)
+{
+    if(p == NULL)
+    {
+        *error = -1;
+        return NULL;
+    }
+
+    packet_len buff_size = p->header.len;
+    packet_len cursor_index = p->body.cursor_index;
+
+    void* data = read_data(p, buff_size - cursor_index, error);
+    *size_read = data == NULL ? 0 : buff_size - cursor_index;
+    return data;
+}
+
+char* read_data_str(packet_t* p, int* error)
+{
+    if(p == NULL)
+    {
+        *error = -1;
+        return NULL;
+    }
+
+    char* current_buffer = p->body.content;
+    packet_len buff_size = p->header.len;
+    packet_len cursor_index = p->body.cursor_index;
+
+    size_t current_str_length = 0;
+    size_t next_curs_index;
+    while((next_curs_index = cursor_index + current_str_length) <= buff_size && *(current_buffer + next_curs_index) != '\0')
+        current_str_length += 1;
+
+
+    if(next_curs_index > buff_size)
+    {
+        *error = -2;
+        return NULL;
+    }
+
+    if(*(current_buffer + next_curs_index) != '\0')
+    {
+        *error = -4;
+        return NULL;
+    }
+
+    size_t needed_bytes = current_str_length * sizeof(char);
+    char* readed_str = malloc(needed_bytes);
+    if(readed_str == NULL)
+    {
+        *error = -3;
+        return NULL;
+    }
+
+    memcpy(readed_str, (current_buffer + cursor_index), needed_bytes);
+    p->body.cursor_index = cursor_index + needed_bytes;
+    return readed_str;
+}
+
 int is_packet_valid(packet_t* p)
 {
     packet_op op = p->header.op;

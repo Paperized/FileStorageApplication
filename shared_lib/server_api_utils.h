@@ -22,6 +22,7 @@ typedef enum server_open_file_options {
 } server_open_file_options_t;
 
 typedef enum server_errors {
+    ERR_NONE = 0,
     ERR_FILE_ALREADY_EXISTS = EEXIST,
     ERR_PATH_NOT_EXISTS = ENOENT,
     ERR_FILE_NOT_OPEN = EACCES

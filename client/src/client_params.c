@@ -110,7 +110,7 @@ int read_args_client_params(int argc, char** argv, client_params_t* params)
     char* save_ptr;
     char* n;
     int c;
-    while ((c = getopt(argc, argv, "hf:w:W:r:R:d:l:u:c:p:D:t:")) != -1)
+    while ((c = getopt(argc, argv, "hf:w:W:r:R:d:l:u:c:pD:t:")) != -1)
     {
         save_ptr = NULL;
 

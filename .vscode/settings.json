@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "server_api_utils.h": "c",
-        "client_params.h": "c"
+        "client_params.h": "c",
+        "file_storage_api.h": "c"
     }
 }

@@ -31,6 +31,8 @@ packet_t* read_packet_from_fd(int fd, int* error);
 int send_packet_to_fd(int id, packet_t* p);
 int write_data(packet_t* p, const void* data, size_t size);
 void* read_data(packet_t* p, size_t size, int* error);
+char* read_data_str(packet_t* p, int* error);
+void* read_until_end(packet_t* p, size_t* size_read, int* error);
 void destroy_packet(packet_t* p);
 
 int is_packet_valid(packet_t* p);

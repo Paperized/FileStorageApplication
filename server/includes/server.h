@@ -25,6 +25,12 @@ typedef int quit_signal_t;
 // GESTIRE SIGINT, SIGQUIT (Chiusura il prima possibile, non accetta nuove richieste e chiude) 
 // e SIGHUP non accetta nuove richieste e finisce con quelle rimanenti
 
+typedef struct client_session {
+    int fd;
+    char* pathname_open_file;
+    int flags_open_file;
+} client_session_t;
+
 extern pthread_cond_t clients_connected_cond;
 extern pthread_mutex_t clients_list_mutex;
 extern linked_list_t clients_connected;
