@@ -2,7 +2,6 @@
 #include <string.h>
 #include "config_params.h"
 
-
 void print_configuration_params(const configuration_params* config)
 {
     printf("********* CONFIGURATION PARAMS *********\n");

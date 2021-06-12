@@ -9,22 +9,6 @@
 #include "server_api_utils.h"
 #include "handle_client.h"
 
-#define LOCK_MUTEX(m) pthread_mutex_lock(m)
-                        //printf("Lockato in riga: %d in %s ", __LINE__, __FILE__); \
-                        //printf(".\n")
-
-#define UNLOCK_MUTEX(m) pthread_mutex_unlock(m)
-                        //printf("Unlockato in riga: %d in %s ", __LINE__, __FILE__); \
-                        //printf(".\n")
-
-#define SET_VAR_MUTEX(var, value, m)  pthread_mutex_lock(m); \
-                                      var = value; \
-                                      pthread_mutex_unlock(m)
-
-#define GET_VAR_MUTEX(var, output, m) pthread_mutex_lock(m); \
-                                      output = var; \
-                                      pthread_mutex_unlock(m)
-
 #define INITIALIZE_SERVER_FUNCTIONALITY(initializer, status) status = initializer(); \
                                                                 if(status != SERVER_OK) \
                                                                 { \
@@ -58,6 +42,9 @@ queue_t requests_queue = INIT_EMPTY_QUEUE;
 pthread_mutex_t quit_signal_mutex = PTHREAD_MUTEX_INITIALIZER;
 quit_signal_t quit_signal = S_NONE;
 
+pthread_mutex_t files_stored_mutex = PTHREAD_MUTEX_INITIALIZER;
+icl_hash_t* files_stored = NULL;
+
 /** VARIABLE STATUS **/
 bool_t socket_initialized = FALSE;
 bool_t workers_initialized = FALSE;
@@ -71,7 +58,27 @@ pthread_t thread_signals_id;
 pthread_t thread_accepter_id;
 pthread_t thread_reader_id;
 
+pthread_mutex_t current_used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
+size_t current_used_memory = 0;
 unsigned int workers_count = 0;
+
+void free_keys_ht(void* key)
+{
+    char* pathname = key;
+    free(pathname);
+}
+
+void free_data_ht(void* key)
+{
+    file_stored_t* file = key;
+    if(file->data)
+        free(file->data);
+
+    pthread_mutex_destroy(&file->rw_mutex);
+    pthread_mutex_destroy(&file->counter_mutex);
+
+    free(file);
+}
 
 int get_max_fid_sessions()
 {
@@ -134,7 +141,7 @@ void* handle_client_requests(void* data)
         if(quit_signal == S_FAST)
             break;
 
-        packet_t* request = cast_to(packet_t*, dequeue(&requests_queue));
+        const packet_t* request = cast_to(const packet_t*, dequeue(&requests_queue));
         UNLOCK_MUTEX(&requests_queue_mutex);
 
         if(request == NULL)
@@ -317,9 +324,8 @@ void* handle_connections(void* params)
         // add to queue
 
         client_session_t* new_client = malloc(sizeof(client_session_t));
+        memset(new_client, 0, sizeof(new_client));
         new_client->fd = new_id;
-        new_client->pathname_open_file = NULL;
-        new_client->flags_open_file = 0;
         
         LOCK_MUTEX(&clients_list_mutex);
         add_failed = ll_add_head(&clients_connected, new_client) != 0;
@@ -423,9 +429,15 @@ void* handle_clients_packets()
                         ll_remove_node(&clients_connected, curr_client);
                         curr_client = temp;
 
-                        if(curr_session->pathname_open_file != NULL)
-                            free(curr_session->pathname_open_file);
-                            
+                        if(curr_session->prev_file_opened != NULL)
+                            free(curr_session->prev_file_opened);
+                        
+                        while(ll_count(&curr_session->files_opened) > 0)
+                        {
+                            void* file;
+                            ll_remove_last(&curr_session->files_opened, &file);
+                        }
+
                         free(curr_session);
                         free(req);
                         continue;
@@ -483,6 +495,8 @@ void rollback_server_and_quit()
         }
     }
 
+    icl_hash_destroy(files_stored, free_keys_ht, free_data_ht);
+
     if(reader_initialized)
     {
         printf("Quitting reader thread.\n");
@@ -527,6 +541,8 @@ int wait_server_end()
         pthread_join(thread_workers_ids[i], NULL);
     }
 
+    icl_hash_destroy(files_stored, free_keys_ht, free_data_ht);
+
     // The thread might be locked in a wait
     if(closing_signal == S_FAST)
     {
@@ -561,6 +577,8 @@ int wait_server_end()
 int start_server()
 {
     int lastest_status;
+
+    files_stored = icl_hash_create(10, NULL, NULL);
 
     // Initialize and run signals
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_signals, lastest_status);

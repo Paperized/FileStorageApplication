@@ -6,6 +6,7 @@
 #include "config_params.h"
 #include "queue.h"
 #include "utils.h"
+#include "icl_hash.h"
 
 #define S_NONE 0
 #define S_SOFT 1
@@ -27,9 +28,25 @@ typedef int quit_signal_t;
 
 typedef struct client_session {
     int fd;
-    char* pathname_open_file;
-    int flags_open_file;
+    linked_list_t files_opened;
+    char* prev_file_opened;
+    int prev_flags_file;
 } client_session_t;
+
+typedef struct file_stored {
+    char* data;
+    size_t size;
+    pthread_mutex_t rw_mutex;
+    pthread_mutex_t counter_mutex;
+    int req_pending_count;
+    bool_t being_removed;
+} file_stored_t;
+
+extern pthread_mutex_t files_stored_mutex;
+extern icl_hash_t* files_stored;
+
+extern pthread_mutex_t current_used_memory_mutex;
+extern size_t current_used_memory;
 
 extern pthread_cond_t clients_connected_cond;
 extern pthread_mutex_t clients_list_mutex;
@@ -47,6 +64,9 @@ extern quit_signal_t quit_signal;
 
 extern configuration_params loaded_configuration;
 extern int server_socket_id;
+
+void free_keys_ht(void* key);
+void free_data_ht(void* key);
 
 quit_signal_t get_quit_signal();
 void set_quit_signal(quit_signal_t value);

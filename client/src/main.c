@@ -8,6 +8,7 @@
 
 #include "client_params.h"
 #include "file_storage_api.h"
+#include "utils.h"
 
 void print_help();
 void send_filenames();
@@ -62,7 +63,7 @@ int main(int argc, char **argv)
         send_file_inside_dirs();
 
         read_filenames();
-        read_files_sent();
+        //read_files_sent();
 
         remove_filenames();
 
@@ -141,9 +142,10 @@ void send_filenames()
     while(curr != NULL)
     {
         char* curr_filename = curr->value;
-        if(openFile(curr_filename, OP_LOCK) == -1)
+        if(openFile(curr_filename, OP_CREATE) == -1)
         {
             printf("Skipping (Open) %s.\n", curr_filename);
+            curr = curr->next;
             continue;
         }
 
@@ -152,6 +154,7 @@ void send_filenames()
             printf("Skipping (Write) %s.\n", curr_filename);
             ll_add_tail(&files_sent, curr_filename);
             closeFile(curr_filename);
+            curr = curr->next;
             continue;
         }
 
@@ -160,7 +163,6 @@ void send_filenames()
         if(closeFile(curr_filename) == -1)
         {
             printf("Skipping (Close) %s.\n", curr_filename);
-            continue;
         }
 
         curr = curr->next;
@@ -187,6 +189,10 @@ void read_file(const char* filename)
     if(g_params.dirname_readed_files != NULL)
     {
         // save file
+        if(write_file_util(filename, buffer, buffer_size) == -1)
+        {
+            printf("Couldnt save file: %s in dir: %s.\n", filename, g_params.dirname_readed_files);
+        }
     }
 
     free(buffer);

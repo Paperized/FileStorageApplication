@@ -144,7 +144,9 @@ int send_packet_to_fd(int fd, packet_t* p)
 void destroy_packet(packet_t* p)
 {
     CHECK_PACKET(p);
-    free(p->body.content);
+
+    if(p->body.content)
+        free(p->body.content);
     free(p);
 }
 
@@ -177,6 +179,20 @@ int write_data(packet_t* p, const void* data, size_t size)
     p->body.content = current_buffer;
     p->header.len = buff_size + size;
     return 0;
+}
+
+int write_data_str(packet_t* p, const char* str)
+{
+    if(p == NULL)
+        return -1;
+
+    size_t len = strnlen(str, MAX_PATHNAME_API_LENGTH) + 1;
+    int res = write_data(p, str, len);
+    if(res < 0)
+        return res;
+
+    p->body.content[p->header.len - 1] = '\0';
+    return res;
 }
 
 void* read_data(packet_t* p, size_t size, int* error)
@@ -242,7 +258,9 @@ char* read_data_str(packet_t* p, int* error)
     while((next_curs_index = cursor_index + current_str_length) <= buff_size && *(current_buffer + next_curs_index) != '\0')
         current_str_length += 1;
 
-
+    // null char
+    current_str_length += 1;
+    next_curs_index += 1;
     if(next_curs_index > buff_size)
     {
         *error = -2;
@@ -289,11 +307,9 @@ int is_packet_valid(packet_t* p)
 packet_t* create_packet(packet_op op)
 {
     packet_t* new_p = malloc(sizeof(packet_t));
-
+    memset(new_p, 0, sizeof(packet_t));
     new_p->header.op = op;
-    new_p->header.len = 0;
     new_p->header.fd_sender = -1;
-    new_p->body.cursor_index = 0;
 
     return new_p;
 }

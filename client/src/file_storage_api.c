@@ -159,7 +159,7 @@ int openFile(const char* pathname, int flags)
     int error;
     error = write_data(of_packet, &flags, sizeof(int));
     CHECK_WRITE_PACKET(error);
-    error = write_data(of_packet, pathname, strnlen(pathname, MAX_PATHNAME_API_LENGTH) * sizeof(char));
+    error = write_data_str(of_packet, pathname);
     CHECK_WRITE_PACKET(error);
 
     print_packet(of_packet);
@@ -195,7 +195,7 @@ int readFile(const char* pathname, void** buf, size_t* size)
 {
     packet_t* rf_packet = create_packet(OP_READ_FILE);
     int error;
-    error = write_data(rf_packet, pathname, strnlen(pathname, MAX_PATHNAME_API_LENGTH) * sizeof(char));
+    error = write_data_str(rf_packet, pathname);
     CHECK_WRITE_PACKET(error);
     
     int result = send_packet_to_fd(fd_server, rf_packet);
@@ -217,7 +217,7 @@ int readFile(const char* pathname, void** buf, size_t* size)
 
     RET_ON_ERROR(rf_packet, response, error);
 
-    char* file_readed = read_data(response, response->header.len, &error);
+    *buf = read_until_end(response, size, &error);
     if(error < 0)
     {
 
@@ -226,8 +226,6 @@ int readFile(const char* pathname, void** buf, size_t* size)
         return -1;
     }
 
-    *buf = file_readed;
-    *size = response->header.len;
     CLEANUP_PACKETS(rf_packet, response);
     WAIT_TIMER;
     return 0;
@@ -237,7 +235,7 @@ int writeFile(const char* pathname, const char* dirname)
 {
     packet_t* rf_packet = create_packet(OP_WRITE_FILE);
     int error;
-    error = write_data(rf_packet, pathname, strnlen(pathname, MAX_PATHNAME_API_LENGTH) * sizeof(char));
+    error = write_data_str(rf_packet, pathname);
     CHECK_WRITE_PACKET(error);
 
     int result = send_packet_to_fd(fd_server, rf_packet);
@@ -301,7 +299,7 @@ int closeFile(const char* pathname)
 {
     packet_t* rf_packet = create_packet(OP_CLOSE_FILE);
     int error;
-    error = write_data(rf_packet, pathname, strnlen(pathname, 100) * sizeof(char)); // set a constant later 
+    error = write_data_str(rf_packet, pathname);
     CHECK_WRITE_PACKET(error);
 
     int result = send_packet_to_fd(fd_server, rf_packet);
@@ -333,7 +331,7 @@ int removeFile(const char* pathname)
 {
     packet_t* rf_packet = create_packet(OP_REMOVE_FILE);
     int error;
-    error = write_data(rf_packet, pathname, strnlen(pathname, 100) * sizeof(char)); // set a constant later 
+    error = write_data_str(rf_packet, pathname); // set a constant later 
     CHECK_WRITE_PACKET(error);
 
     int result = send_packet_to_fd(fd_server, rf_packet);
