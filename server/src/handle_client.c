@@ -5,18 +5,18 @@
 #include "server.h"
 #include "handle_client.h"
 
-#define GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout)      pthread_mutex_lock(hmm); \
+#define GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout)     DLOCK_MUTEX(hmm); \
                                                         fout = icl_hash_find(files_stored, fname); \
                                                         if(fout != NULL) \
-                                                            pthread_mutex_lock(&fout->rw_mutex); \
+                                                            DLOCK_MUTEX(&fout->rw_mutex);
 
 #define GET_FILE_AND_ACQUIRE2(hm, hmm, fname, fout)     GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout); \
-                                                        if(fout == NULL)
-                                                            pthread_mutex_unlock(hmm);                                      
+                                                        if(fout == NULL) \
+                                                            DUNLOCK_MUTEX(hmm);                                      
 
 
 #define GET_FILE_AND_ACQUIRE_RG(hm, hmm, fname, fout)   GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout); \
-                                                        pthread_mutex_unlock(hmm);
+                                                        DUNLOCK_MUTEX(hmm);
 
 // return a quantity of bytes > 0 if exceed the total memory, <= otherwise
 int check_memory_capacity(size_t next_alloc_size)
@@ -131,7 +131,9 @@ void handle_open_file_req(const packet_t* req, pthread_t curr)
     {
         // se esiste il il file error
         if(file != NULL)
+        {
             error = ERR_FILE_ALREADY_EXISTS;
+        }
         else
         {
             file = malloc(sizeof(file_stored_t));
@@ -145,10 +147,15 @@ void handle_open_file_req(const packet_t* req, pthread_t curr)
     {
         // se il file non esiste error
         if(file == NULL)
+        {
             error = ERR_PATH_NOT_EXISTS;
+        }
     }
 
-    UNLOCK_MUTEX(&files_stored_mutex);
+    if(file != NULL)
+        DUNLOCK_MUTEX(&file->rw_mutex);
+    
+    DUNLOCK_MUTEX(&files_stored_mutex);
 
     if(error == ERR_NONE)
     {
@@ -194,16 +201,13 @@ void handle_write_file_req(const packet_t* req, pthread_t curr)
     server_errors_t error = ERR_NONE;
     client_session_t* session = get_session(req->header.fd_sender);
     file_stored_t* curr_file;
-    bool_t can_write = strncmp(pathname, session->prev_file_opened, MAX_PATHNAME_API_LENGTH) == 0;
-    
-    if(can_write)
-    {
-        GET_FILE_AND_ACQUIRE_RG(files_stored, &files_stored_mutex, pathname, curr_file);
-    }
 
-    if(!can_write)
+    if(session->prev_file_opened != NULL)
+        GET_FILE_AND_ACQUIRE_RG(files_stored, &files_stored_mutex, session->prev_file_opened, curr_file);
+
+    if(session->prev_file_opened == NULL)
         error = ERR_FILE_NOT_OPEN;
-    if(curr_file == NULL)
+    else if(curr_file == NULL)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
@@ -230,7 +234,7 @@ void handle_write_file_req(const packet_t* req, pthread_t curr)
             error = ERR_PATH_NOT_EXISTS;
         }
 
-        UNLOCK_MUTEX(&curr_file->rw_mutex);
+        DUNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
@@ -280,7 +284,7 @@ void handle_append_file_req(const packet_t* req, pthread_t curr)
     // check nella hastable se il file esiste e se l'utente lo ha aperto
     if(!is_file_opened)
         error = ERR_FILE_NOT_OPEN;
-    if(curr_file == NULL)
+    else if(curr_file == NULL)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
@@ -301,7 +305,7 @@ void handle_append_file_req(const packet_t* req, pthread_t curr)
         }
 
         memcpy(curr_file->data + curr_file->size, buffer, buff_size);
-        UNLOCK_MUTEX(&curr_file->rw_mutex);
+        DUNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
@@ -362,7 +366,7 @@ void handle_read_file_req(const packet_t* req, pthread_t curr)
             write_data(response, curr_file->data, curr_file->size);
         }
 
-        UNLOCK_MUTEX(&curr_file->rw_mutex);
+        DUNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
@@ -411,11 +415,11 @@ void handle_remove_file_req(const packet_t* req, pthread_t curr)
     {
         session->prev_file_opened = NULL;
 
-        UNLOCK_MUTEX(&curr_file->rw_mutex);
+        DUNLOCK_MUTEX(&curr_file->rw_mutex);
         int memory_saved = curr_file->size;
         icl_hash_delete(files_stored, pathname, on_file_name_removed, on_file_content_removed);
         SET_VAR_MUTEX(current_used_memory, current_used_memory + memory_saved, &current_used_memory_mutex);
-        UNLOCK_MUTEX(&files_stored_mutex);
+        DUNLOCK_MUTEX(&files_stored_mutex);
     }
 
     if(error != ERR_NONE)
@@ -462,13 +466,13 @@ void handle_close_file_req(const packet_t* req, pthread_t curr)
     // check nella hastable se il file esiste e se l'utente lo ha aperto
     if(!is_file_opened)
         error = ERR_FILE_NOT_OPEN;
-    if(curr_file == NULL)
+    else if(curr_file == NULL)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
         session->prev_file_opened = NULL;
         session_remove_file_opened(session, pathname);
-        UNLOCK_MUTEX(&curr_file->rw_mutex);
+        DUNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)

@@ -189,10 +189,16 @@ void read_file(const char* filename)
     if(g_params.dirname_readed_files != NULL)
     {
         // save file
-        if(write_file_util(filename, buffer, buffer_size) == -1)
+        char *dirname, *fname;
+        extract_dirname_and_filename(filename, &dirname, &fname);
+
+        char* newpath_built = buildpath(g_params.dirname_readed_files, fname, strlen(g_params.dirname_readed_files), strlen(fname));
+        if(write_file_util(newpath_built, buffer, buffer_size) == -1)
         {
-            printf("Couldnt save file: %s in dir: %s.\n", filename, g_params.dirname_readed_files);
+            printf("Couldnt save file: %s in dir: %s.\n", fname, g_params.dirname_readed_files);
         }
+        
+        free(newpath_built);
     }
 
     free(buffer);

@@ -6,8 +6,11 @@ BDIR = ./bin
 
 LIBS = -pthread
 
-CDIR = ./client
-SDIR = ./server
+CDIRNAME = client
+SDIRNAME = server
+
+CDIR = ./$(CDIRNAME)
+SDIR = ./$(SDIRNAME)
 LDIR = ./shared_lib
 BDIRNAME = bin
 
@@ -15,9 +18,25 @@ CFLAGS_SERVER = $(CFLAGS) -I $(SDIR)/includes -I $(LDIR)/includes
 CFLAGS_CLIENT = $(CFLAGS) -I $(CDIR)/includes -I $(LDIR)/includes
 CFLAGS_LIB = $(CFLAGS) -I $(LDIR)/includes
 
-all: clean-shared_lib compile-shared_lib clean-server compile-server clean-client compile-client
-compile-all: compile-shared_lib compile-client compile-server
+DEFAULT_SOCKETNAME = my_socket.sk
 
+all: clean-shared_lib compile-shared_lib clean-server compile-server clean-client compile-client
+
+test-client:
+	test -d $(CDIR)/bin/data_received/ || cd $(CDIR)/bin && mkdir data_received
+	cd $(CDIR)/bin && echo "file_da_inviare" > data1.txt
+	cd $(CDIR)/bin && ./client.out -f ../../$(SDIRNAME)/bin/$(DEFAULT_SOCKETNAME) -p -W ./data1.txt -r ./data1.txt -d ./data_received
+test-server:
+	cd $(SDIR)/bin && ./server.out
+
+dtest-client:
+	test -d $(CDIR)/bin/data_received || cd $(CDIR)/bin && mkdir data_received
+	cd $(CDIR)/bin && echo "file_da_inviare" > data1.txt
+	cd $(CDIR)/bin && gdb ./client.out
+dtest-server:
+	cd $(SDIR)/bin && gdb ./server.out
+
+compile-all: compile-shared_lib compile-client compile-server
 compile-server: $(SDIR)/bin/server
 compile-client: $(CDIR)/bin/client
 compile-shared_lib: $(LDIR)/bin/shared_lib
@@ -78,7 +97,7 @@ clean-shared_lib:
 	rm -f $(LDIR)/obj/* *~ core $(INCDIR)/*~
 
 define CONFIG_TEMPLATE
-SERVER_SOCKET_NAME=socket_file
+SERVER_SOCKET_NAME=$(DEFAULT_SOCKETNAME)
 SERVER_THREAD_WORKERS=4
 SERVER_BYTE_STORAGE_AVAILABLE=23473274
 SERVER_MAX_NUM_UPLOADABLE=100

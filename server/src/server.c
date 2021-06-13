@@ -75,7 +75,6 @@ void free_data_ht(void* key)
         free(file->data);
 
     pthread_mutex_destroy(&file->rw_mutex);
-    pthread_mutex_destroy(&file->counter_mutex);
 
     free(file);
 }

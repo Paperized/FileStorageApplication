@@ -37,26 +37,32 @@ void free_client_params(client_params_t* params)
     {
         char* str;
         ll_remove_last(&params->file_list_sendable, (void**)&str);
+        free(str);
     }
 
     while(ll_count(&params->file_list_readable) > 0)
     {
         char* str;
         ll_remove_last(&params->file_list_readable, (void**)&str);
+        free(str);
     }
 
     while(ll_count(&params->file_list_removable) > 0)
     {
         char* str;
         ll_remove_last(&params->file_list_removable, (void**)&str);
+        free(str);
     }
 
     while(ll_count(&params->dirname_file_sendable) > 0)
     {
         string_int_pair_t* pair;
         ll_remove_last(&params->dirname_file_sendable, (void**)&pair);
+        free(pair->str_value);
         free(pair);
     }
+
+    free(params->dirname_readed_files);
 }
 
 void tokenize_filenames_into_ll(char* str, linked_list_t* ll)
@@ -67,6 +73,7 @@ void tokenize_filenames_into_ll(char* str, linked_list_t* ll)
     char* file_name = strtok_r(str, COMMA, &save_ptr);
     if(file_name == NULL) return;
     
+    file_name = realpath(file_name, NULL);
     if(ll_add_tail(ll, file_name) != 0)
     {
         printf("Error adding %s to linked list during params read.\n", file_name);
@@ -74,6 +81,8 @@ void tokenize_filenames_into_ll(char* str, linked_list_t* ll)
 
     while((file_name = strtok_r(NULL, COMMA, &save_ptr)) != NULL)
     {
+        file_name = realpath(file_name, NULL);
+
         if(ll_add_tail(ll, file_name) != 0)
         {
             printf("Error adding %s to linked list during params read.\n", file_name);
@@ -93,6 +102,7 @@ void tokenize_dirname_sendable_into_ll(char* str, linked_list_t* ll)
     if(n >= 0)
     {
         string_int_pair_t* new_dir = malloc(sizeof(string_int_pair_t));
+        file_name = realpath(file_name, NULL);
         new_dir->str_value = file_name;
         new_dir->int_value = n;
         if(ll_add_tail(ll, new_dir) != 0)
@@ -100,8 +110,6 @@ void tokenize_dirname_sendable_into_ll(char* str, linked_list_t* ll)
             printf("Error while adding %s[,n=%d] param.\n", file_name, n);
             free(new_dir);
         }
-
-        return;
     }
 }
 
@@ -142,7 +150,7 @@ int read_args_client_params(int argc, char** argv, client_params_t* params)
             break;
         case 'd':
             BREAK_ON_NULL(optarg);
-            params->dirname_readed_files = strtok_r(optarg, COMMA, &save_ptr);
+            params->dirname_readed_files = realpath(strtok_r(optarg, COMMA, &save_ptr), NULL);
             break;
         case 'D':
             printf("-D option not implemented!.\n");
