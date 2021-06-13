@@ -37,9 +37,6 @@ typedef struct file_stored {
     char* data;
     size_t size;
     pthread_mutex_t rw_mutex;
-    pthread_mutex_t counter_mutex;
-    int req_pending_count;
-    bool_t being_removed;
 } file_stored_t;
 
 extern pthread_mutex_t files_stored_mutex;

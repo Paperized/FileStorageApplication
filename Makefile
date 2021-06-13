@@ -22,6 +22,7 @@ compile-server: $(SDIR)/bin/server
 compile-client: $(CDIR)/bin/client
 compile-shared_lib: $(LDIR)/bin/shared_lib
 
+
 $(SDIR)/bin/server: $(SDIR)/obj/config_params.o $(SDIR)/obj/server.o $(SDIR)/obj/handle_client.o $(LDIR)/bin/shared_lib.a
 	$(CC) $(CFLAGS_SERVER) -g $(SDIR)/src/main.c -o $@.out $^ $(LIBS)
 	test -f $(BDIR)/config.txt || $(MAKE) force_generate_config
@@ -36,7 +37,6 @@ $(SDIR)/obj/handle_client.o: $(SDIR)/src/handle_client.c
 	$(CC) $(CFLAGS_SERVER) -g -c -o $@ $<
 
 
-
 $(CDIR)/bin/client: $(CDIR)/obj/client_params.o $(CDIR)/obj/file_storage_api.o $(LDIR)/bin/shared_lib.a
 	$(CC) $(CFLAGS_CLIENT) -g $(CDIR)/src/main.c -o $@.out $^ $(LIBS)
 
@@ -45,7 +45,6 @@ $(CDIR)/obj/file_storage_api.o: $(CDIR)/src/file_storage_api.c
 
 $(CDIR)/obj/client_params.o: $(CDIR)/src/client_params.c
 	$(CC) $(CFLAGS_CLIENT) -g -c -o $@ $<
-
 
 
 $(LDIR)/bin/shared_lib: $(LDIR)/obj/utils.o $(LDIR)/obj/server_api_utils.o $(LDIR)/obj/icl_hash.o $(LDIR)/obj/packet.o $(LDIR)/obj/linked_list.o $(LDIR)/obj/queue.o

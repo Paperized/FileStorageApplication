@@ -5,6 +5,19 @@
 #include "server.h"
 #include "handle_client.h"
 
+#define GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout)      pthread_mutex_lock(hmm); \
+                                                        fout = icl_hash_find(files_stored, fname); \
+                                                        if(fout != NULL) \
+                                                            pthread_mutex_lock(&fout->rw_mutex); \
+
+#define GET_FILE_AND_ACQUIRE2(hm, hmm, fname, fout)     GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout); \
+                                                        if(fout == NULL)
+                                                            pthread_mutex_unlock(hmm);                                      
+
+
+#define GET_FILE_AND_ACQUIRE_RG(hm, hmm, fname, fout)   GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout); \
+                                                        pthread_mutex_unlock(hmm);
+
 // return a quantity of bytes > 0 if exceed the total memory, <= otherwise
 int check_memory_capacity(size_t next_alloc_size)
 {
@@ -27,6 +40,34 @@ void session_remove_file_opened(client_session_t* s, const char* pathname)
 
         curr = curr->next;
     }
+}
+
+void on_file_name_removed(void* pathname)
+{
+    // rimuovo questa da tutti gli utenti
+    node_t* curr = clients_connected.head;
+    while(curr != NULL)
+    {
+        client_session_t* curr_s = curr->value;
+        session_remove_file_opened(curr_s, pathname);
+
+        if(strcmp(pathname, curr_s->prev_file_opened) == 0)
+        {
+            curr_s->prev_file_opened = NULL;
+        }
+
+        curr = curr->next;
+    }
+
+    free(pathname);
+}
+
+void on_file_content_removed(void* file)
+{
+    file_stored_t* fcontent = file;
+    free(fcontent->data);
+    pthread_mutex_destroy(&fcontent->rw_mutex);
+    free(fcontent);
 }
 
 bool_t session_contains_file_opened(client_session_t* s, const char* pathname)
@@ -84,7 +125,7 @@ void handle_open_file_req(const packet_t* req, pthread_t curr)
     server_errors_t error = ERR_NONE;
 
     file_stored_t* file;
-    GET_VAR_MUTEX(icl_hash_find(files_stored, pathname), file, &files_stored_mutex);
+    GET_FILE_AND_ACQUIRE1(files_stored, &files_stored_mutex, pathname, file);
 
     if((*flags) & OP_CREATE)
     {
@@ -96,9 +137,8 @@ void handle_open_file_req(const packet_t* req, pthread_t curr)
             file = malloc(sizeof(file_stored_t));
             memset(file, 0, sizeof(file_stored_t));
             pthread_mutex_init(&file->rw_mutex, NULL);
-            pthread_mutex_init(&file->counter_mutex, NULL);
 
-            EXEC_WITH_MUTEX(icl_hash_insert(files_stored, pathname, file), &files_stored_mutex);
+            icl_hash_insert(files_stored, pathname, file);
         }
     }
     else
@@ -107,6 +147,8 @@ void handle_open_file_req(const packet_t* req, pthread_t curr)
         if(file == NULL)
             error = ERR_PATH_NOT_EXISTS;
     }
+
+    UNLOCK_MUTEX(&files_stored_mutex);
 
     if(error == ERR_NONE)
     {
@@ -117,7 +159,7 @@ void handle_open_file_req(const packet_t* req, pthread_t curr)
         }
 
         int pathlen = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
-        session->prev_file_opened = malloc(sizeof(char) * pathlen);
+        session->prev_file_opened = pathname;
         strncpy(session->prev_file_opened, pathname, pathlen);
         session->prev_flags_file = *flags;
     }
@@ -156,56 +198,39 @@ void handle_write_file_req(const packet_t* req, pthread_t curr)
     
     if(can_write)
     {
-        GET_VAR_MUTEX(icl_hash_find(files_stored, session->prev_file_opened), curr_file, &files_stored_mutex);
+        GET_FILE_AND_ACQUIRE_RG(files_stored, &files_stored_mutex, pathname, curr_file);
     }
 
     if(!can_write)
         error = ERR_FILE_NOT_OPEN;
-    if(curr_file == NULL || curr_file->being_removed)
+    if(curr_file == NULL)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
         session->prev_file_opened = NULL;
 
-        EXEC_WITH_MUTEX(curr_file->req_pending_count += 1, &curr_file->counter_mutex);
-        LOCK_MUTEX(&curr_file->rw_mutex);
-        if(curr_file->being_removed)
-        {
-            curr_file->req_pending_count -= 1;
+        void* buffer;
+        size_t size_b;
+        int res = read_file_util(pathname, &buffer, &size_b);
 
-            if(curr_file->req_pending_count == 0)
+        if(res > 0)
+        {
+            int exceeded_memory = check_memory_capacity(size_b);
+            if(exceeded_memory > 0)
             {
-                UNLOCK_MUTEX(&curr_file->rw_mutex);
-                free(curr_file);
+                // remove files for x bytes
+                printf("Server full.\n");
             }
-            else
-                UNLOCK_MUTEX(&curr_file->rw_mutex);
+
+            curr_file->data = buffer;
+            curr_file->size = size_b;
         }
         else
         {
-            void* buffer;
-            size_t size_b;
-            int res = read_file_util(pathname, &buffer, &size_b);
-
-            if(res > 0)
-            {
-                int exceeded_memory = check_memory_capacity(size_b);
-                if(exceeded_memory > 0)
-                {
-                    // remove files for x bytes
-                    printf("Server full.\n");
-                }
-
-                curr_file->data = buffer;
-                curr_file->size = size_b;
-            }
-            else
-            {
-                error = ERR_PATH_NOT_EXISTS;
-            }
-
-            UNLOCK_MUTEX(&curr_file->rw_mutex);
+            error = ERR_PATH_NOT_EXISTS;
         }
+
+        UNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
@@ -249,51 +274,34 @@ void handle_append_file_req(const packet_t* req, pthread_t curr)
 
     if(is_file_opened)
     {
-        GET_VAR_MUTEX(icl_hash_find(files_stored, pathname), curr_file, &files_stored_mutex);
+        GET_FILE_AND_ACQUIRE_RG(files_stored, &files_stored_mutex, pathname, curr_file);
     }
 
     // check nella hastable se il file esiste e se l'utente lo ha aperto
     if(!is_file_opened)
         error = ERR_FILE_NOT_OPEN;
-    if(curr_file == NULL || curr_file->being_removed)
+    if(curr_file == NULL)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
         session->prev_file_opened = NULL;
 
-        EXEC_WITH_MUTEX(curr_file->req_pending_count += 1, &curr_file->counter_mutex);
-        LOCK_MUTEX(&curr_file->rw_mutex);
-        if(curr_file->being_removed)
+        buffer = read_until_end(req, &buff_size, &error_read);
+        int exceeded_amount = check_memory_capacity(buff_size);
+        if(exceeded_amount > 0)
         {
-            curr_file->req_pending_count -= 1;
-
-            if(curr_file->req_pending_count == 0)
-            {
-                UNLOCK_MUTEX(&curr_file->rw_mutex);
-                free(curr_file);
-            }
-            else
-                UNLOCK_MUTEX(&curr_file->rw_mutex);
+            // rimuovi qualche file
+            printf("Server full.\n");
         }
-        else
+
+        curr_file->data = realloc(curr_file->data, curr_file->size + buff_size);
+        if(curr_file->data == NULL)
         {
-            buffer = read_until_end(req, &buff_size, &error_read);
-            int exceeded_amount = check_memory_capacity(buff_size);
-            if(exceeded_amount > 0)
-            {
-                // rimuovi qualche file
-                printf("Server full.\n");
-            }
-
-            curr_file->data = realloc(curr_file->data, curr_file->size + buff_size);
-            if(curr_file->data == NULL)
-            {
-                printf("Out of memory.\n");
-            }
-
-            memcpy(curr_file->data + curr_file->size, buffer, buff_size);
-            UNLOCK_MUTEX(&curr_file->rw_mutex);
+            printf("Out of memory.\n");
         }
+
+        memcpy(curr_file->data + curr_file->size, buffer, buff_size);
+        UNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
@@ -336,42 +344,25 @@ void handle_read_file_req(const packet_t* req, pthread_t curr)
 
     if(is_file_opened)
     {
-        GET_VAR_MUTEX(icl_hash_find(files_stored, pathname), curr_file, &files_stored_mutex);
+        GET_FILE_AND_ACQUIRE_RG(files_stored, &files_stored_mutex, pathname, curr_file);
     }
 
     // check nella hastable se il file esiste e se l'utente lo ha aperto
     if(!is_file_opened)
         error = ERR_FILE_NOT_OPEN;
-    else if(curr_file == NULL || curr_file->being_removed)
+    else if(curr_file == NULL)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
         session->prev_file_opened = NULL;
         response = create_packet(OP_OK);
-        
-        EXEC_WITH_MUTEX(curr_file->req_pending_count += 1, &curr_file->counter_mutex);
-        LOCK_MUTEX(&curr_file->rw_mutex);
-        if(curr_file->being_removed)
-        {
-            curr_file->req_pending_count -= 1;
 
-            if(curr_file->req_pending_count == 0)
-            {
-                UNLOCK_MUTEX(&curr_file->rw_mutex);
-                free(curr_file);
-            }
-            else
-                UNLOCK_MUTEX(&curr_file->rw_mutex);
-        }
-        else
+        if(curr_file->size > 0)
         {
-            if(curr_file->size > 0)
-            {
-                write_data(response, curr_file->data, curr_file->size);
-            }
-
-            UNLOCK_MUTEX(&curr_file->rw_mutex);
+            write_data(response, curr_file->data, curr_file->size);
         }
+
+        UNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
@@ -408,47 +399,23 @@ void handle_remove_file_req(const packet_t* req, pthread_t curr)
 
     if(is_file_opened)
     {
-        GET_VAR_MUTEX(icl_hash_find(files_stored, pathname), curr_file, &files_stored_mutex);
+        GET_FILE_AND_ACQUIRE2(files_stored, &files_stored_mutex, pathname, curr_file);
     }
 
     // check nella hastable se il file esiste e se l'utente lo ha aperto
     if(!is_file_opened)
         error = ERR_FILE_NOT_OPEN;
-    else if(curr_file == NULL || curr_file->being_removed)
+    else if(curr_file == NULL)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
         session->prev_file_opened = NULL;
 
-        EXEC_WITH_MUTEX(curr_file->req_pending_count += 1, &curr_file->counter_mutex);
-        LOCK_MUTEX(&curr_file->rw_mutex);
-        curr_file->req_pending_count -= 1;
-        if(curr_file->being_removed)
-        {
-            if(curr_file->req_pending_count == 0)
-            {
-                UNLOCK_MUTEX(&curr_file->rw_mutex);
-                pthread_mutex_destroy(&curr_file->rw_mutex);
-                pthread_mutex_destroy(&curr_file->counter_mutex);
-                free(curr_file);
-            }
-            else
-                UNLOCK_MUTEX(&curr_file->rw_mutex);
-        }
-        else
-        {
-            curr_file->being_removed = TRUE;
-            free(curr_file->data);
-            SET_VAR_MUTEX(current_used_memory, current_used_memory + curr_file->size, &current_used_memory_mutex);
-
-            if(curr_file->req_pending_count == 0)
-            {
-                UNLOCK_MUTEX(&curr_file->rw_mutex);
-                pthread_mutex_destroy(&curr_file->rw_mutex);
-                pthread_mutex_destroy(&curr_file->counter_mutex);
-                free(curr_file);
-            }
-        }
+        UNLOCK_MUTEX(&curr_file->rw_mutex);
+        int memory_saved = curr_file->size;
+        icl_hash_delete(files_stored, pathname, on_file_name_removed, on_file_content_removed);
+        SET_VAR_MUTEX(current_used_memory, current_used_memory + memory_saved, &current_used_memory_mutex);
+        UNLOCK_MUTEX(&files_stored_mutex);
     }
 
     if(error != ERR_NONE)
@@ -489,18 +456,19 @@ void handle_close_file_req(const packet_t* req, pthread_t curr)
 
     if(is_file_opened)
     {
-        GET_VAR_MUTEX(icl_hash_find(files_stored, pathname), curr_file, &files_stored_mutex);
+        GET_FILE_AND_ACQUIRE_RG(files_stored, &files_stored_mutex, pathname, curr_file);
     }
 
     // check nella hastable se il file esiste e se l'utente lo ha aperto
     if(!is_file_opened)
         error = ERR_FILE_NOT_OPEN;
-    if(curr_file == NULL || curr_file->being_removed)
+    if(curr_file == NULL)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
         session->prev_file_opened = NULL;
         session_remove_file_opened(session, pathname);
+        UNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
