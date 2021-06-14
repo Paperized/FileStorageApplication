@@ -5,18 +5,18 @@
 #include "server.h"
 #include "handle_client.h"
 
-#define GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout)     DLOCK_MUTEX(hmm); \
+#define GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout)     LOCK_MUTEX(hmm); \
                                                         fout = icl_hash_find(files_stored, fname); \
                                                         if(fout != NULL) \
-                                                            DLOCK_MUTEX(&fout->rw_mutex);
+                                                            LOCK_MUTEX(&fout->rw_mutex);
 
 #define GET_FILE_AND_ACQUIRE2(hm, hmm, fname, fout)     GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout); \
                                                         if(fout == NULL) \
-                                                            DUNLOCK_MUTEX(hmm);                                      
+                                                            UNLOCK_MUTEX(hmm);                                      
 
 
 #define GET_FILE_AND_ACQUIRE_RG(hm, hmm, fname, fout)   GET_FILE_AND_ACQUIRE1(hm, hmm, fname, fout); \
-                                                        DUNLOCK_MUTEX(hmm);
+                                                        UNLOCK_MUTEX(hmm);
 
 // return a quantity of bytes > 0 if exceed the total memory, <= otherwise
 int check_memory_capacity(size_t next_alloc_size)
@@ -153,9 +153,9 @@ void handle_open_file_req(const packet_t* req, pthread_t curr)
     }
 
     if(file != NULL)
-        DUNLOCK_MUTEX(&file->rw_mutex);
+        UNLOCK_MUTEX(&file->rw_mutex);
     
-    DUNLOCK_MUTEX(&files_stored_mutex);
+    UNLOCK_MUTEX(&files_stored_mutex);
 
     if(error == ERR_NONE)
     {
@@ -200,6 +200,7 @@ void handle_write_file_req(const packet_t* req, pthread_t curr)
     packet_t* response;
     server_errors_t error = ERR_NONE;
     client_session_t* session = get_session(req->header.fd_sender);
+
     file_stored_t* curr_file;
 
     if(session->prev_file_opened != NULL)
@@ -234,7 +235,7 @@ void handle_write_file_req(const packet_t* req, pthread_t curr)
             error = ERR_PATH_NOT_EXISTS;
         }
 
-        DUNLOCK_MUTEX(&curr_file->rw_mutex);
+        UNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
@@ -273,6 +274,8 @@ void handle_append_file_req(const packet_t* req, pthread_t curr)
     packet_t* response;
     server_errors_t error = ERR_NONE;
     client_session_t* session = get_session(req->header.fd_sender);
+    session->prev_file_opened = NULL;
+
     bool_t is_file_opened = session_contains_file_opened(session, pathname);
     file_stored_t* curr_file;
 
@@ -288,8 +291,6 @@ void handle_append_file_req(const packet_t* req, pthread_t curr)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
-        session->prev_file_opened = NULL;
-
         buffer = read_until_end(req, &buff_size, &error_read);
         int exceeded_amount = check_memory_capacity(buff_size);
         if(exceeded_amount > 0)
@@ -305,7 +306,7 @@ void handle_append_file_req(const packet_t* req, pthread_t curr)
         }
 
         memcpy(curr_file->data + curr_file->size, buffer, buff_size);
-        DUNLOCK_MUTEX(&curr_file->rw_mutex);
+        UNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
@@ -343,6 +344,8 @@ void handle_read_file_req(const packet_t* req, pthread_t curr)
     packet_t* response;
     server_errors_t error = ERR_NONE;
     client_session_t* session = get_session(req->header.fd_sender);
+    session->prev_file_opened = NULL;
+
     bool_t is_file_opened = session_contains_file_opened(session, pathname);
     file_stored_t* curr_file;
 
@@ -358,7 +361,6 @@ void handle_read_file_req(const packet_t* req, pthread_t curr)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
-        session->prev_file_opened = NULL;
         response = create_packet(OP_OK);
 
         if(curr_file->size > 0)
@@ -366,7 +368,7 @@ void handle_read_file_req(const packet_t* req, pthread_t curr)
             write_data(response, curr_file->data, curr_file->size);
         }
 
-        DUNLOCK_MUTEX(&curr_file->rw_mutex);
+        UNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
@@ -382,6 +384,67 @@ void handle_read_file_req(const packet_t* req, pthread_t curr)
 
     destroy_packet(response);
     free(pathname);
+}
+
+void handle_nread_files_req(const packet_t* req, pthread_t curr)
+{
+    printf("[W/%lu] OP_NREAD_FILES request operation.\n", curr);
+    int error_read;
+    int *n_to_read = read_data(req, sizeof(int), &error_read);
+    bool_t read_all = *n_to_read == 0;
+
+    char* dirname = read_data_str(req, &error_read);
+    if(dirname == NULL)
+    {
+        printf("Dirname is empty!.\n");
+        return;
+    }
+
+    packet_t* response;
+    client_session_t* session = get_session(req->header.fd_sender);
+    session->prev_file_opened = NULL;
+
+    int i;
+    icl_entry_t* curr_entry;
+    char* curr_fname;
+    file_stored_t* curr_file;
+    int total_read = 0;
+
+    icl_hash_foreach_mutex(files_stored, i, curr_entry, curr_fname, curr_file, &files_stored_mutex) {
+        if((read_all || *n_to_read > 0) && (curr_fname != NULL && curr_file != NULL))
+        {
+            LOCK_MUTEX(&curr_file->rw_mutex);
+
+            char *fdir, *fn;
+            extract_dirname_and_filename(curr_fname, &fdir, &fn);
+            char* saving_path = buildpath(dirname, fn, strlen(dirname), strlen(fn));
+            printf("Readn: %s.\n", saving_path);
+            
+            int res = write_file_util(saving_path, curr_file->data, curr_file->size);
+            UNLOCK_MUTEX(&curr_file->rw_mutex);
+
+            free(saving_path);
+
+            if(res >= 0)
+            {
+                *n_to_read -= 1;
+                total_read += 1;
+            }
+        }
+    }
+    icl_hash_foreach_mutex_end(&files_stored_mutex);
+
+    response = create_packet(OP_OK);
+    write_data(response, &total_read, sizeof(int));
+
+    if(send_packet_to_fd(req->header.fd_sender, response) <= 0)
+    {
+        printf("fallito.\n");
+    }
+
+    destroy_packet(response);
+    free(dirname);
+    free(n_to_read);
 }
 
 void handle_remove_file_req(const packet_t* req, pthread_t curr)
@@ -415,11 +478,11 @@ void handle_remove_file_req(const packet_t* req, pthread_t curr)
     {
         session->prev_file_opened = NULL;
 
-        DUNLOCK_MUTEX(&curr_file->rw_mutex);
+        UNLOCK_MUTEX(&curr_file->rw_mutex);
         int memory_saved = curr_file->size;
         icl_hash_delete(files_stored, pathname, on_file_name_removed, on_file_content_removed);
         SET_VAR_MUTEX(current_used_memory, current_used_memory + memory_saved, &current_used_memory_mutex);
-        DUNLOCK_MUTEX(&files_stored_mutex);
+        UNLOCK_MUTEX(&files_stored_mutex);
     }
 
     if(error != ERR_NONE)
@@ -472,7 +535,7 @@ void handle_close_file_req(const packet_t* req, pthread_t curr)
     {
         session->prev_file_opened = NULL;
         session_remove_file_opened(session, pathname);
-        DUNLOCK_MUTEX(&curr_file->rw_mutex);
+        UNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)

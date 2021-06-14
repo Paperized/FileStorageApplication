@@ -231,6 +231,38 @@ int readFile(const char* pathname, void** buf, size_t* size)
     return 0;
 }
 
+int readNFiles(int N, const char* dirname)
+{
+    packet_t* rf_packet = create_packet(OP_READN_FILES);
+    int error;
+    error = write_data(rf_packet, &N, sizeof(int));
+    CHECK_WRITE_PACKET(error);
+    error = write_data_str(rf_packet, dirname);
+    CHECK_WRITE_PACKET(error);
+    
+    int result = send_packet_to_fd(fd_server, rf_packet);
+    if(result == -1)
+    {
+        // set errno
+
+        return -1;
+    }
+
+    packet_t* response = wait_response_from_server(&error);
+    if(error == -1)
+    {
+        // set errno
+        destroy_packet(rf_packet);
+        WAIT_TIMER;
+        return -1;
+    }
+
+    RET_ON_ERROR(rf_packet, response, error);
+    CLEANUP_PACKETS(rf_packet, response);
+    WAIT_TIMER;
+    return 0;
+}
+
 int writeFile(const char* pathname, const char* dirname)
 {
     packet_t* rf_packet = create_packet(OP_WRITE_FILE);

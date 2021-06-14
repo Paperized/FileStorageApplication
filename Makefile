@@ -22,16 +22,30 @@ DEFAULT_SOCKETNAME = my_socket.sk
 
 all: clean-shared_lib compile-shared_lib clean-server compile-server clean-client compile-client
 
+FNAMES_WRITE = ./data4.txt,./data2.txt,./data3.txt,./data1.txt,./data5.txt,./data6.txt,./data7.txt
+
 test-client:
 	test -d $(CDIR)/bin/data_received/ || cd $(CDIR)/bin && mkdir data_received
-	cd $(CDIR)/bin && echo "file_da_inviare" > data1.txt
-	cd $(CDIR)/bin && ./client.out -f ../../$(SDIRNAME)/bin/$(DEFAULT_SOCKETNAME) -p -W ./data1.txt -r ./data1.txt -d ./data_received
+	cd $(CDIR)/bin && echo "IL PRIMO FILE E' IL FORTUNATO" > data1.txt
+	cd $(CDIR)/bin && echo "FORSE LO INVIA" > data2.txt
+	cd $(CDIR)/bin && echo "PROVA 333333" > data3.txt
+	cd $(CDIR)/bin && echo "PROVA PROVA 4" > data4.txt
+	cd $(CDIR)/bin && echo "LA MACCHINA E' VELOCE" > data5.txt
+	cd $(CDIR)/bin && echo "DATA6 FORSE?^" > data6.txt
+	cd $(CDIR)/bin && echo "XDDDDD" > data7.txt
+	cd $(CDIR)/bin && ./client.out -f ../../$(SDIRNAME)/bin/$(DEFAULT_SOCKETNAME) -p -W $(FNAMES_WRITE) -r ./data6.txt -d ./data_received -R 2
 test-server:
 	cd $(SDIR)/bin && ./server.out
 
 dtest-client:
 	test -d $(CDIR)/bin/data_received || cd $(CDIR)/bin && mkdir data_received
-	cd $(CDIR)/bin && echo "file_da_inviare" > data1.txt
+	cd $(CDIR)/bin && echo "IL PRIMO FILE E' IL FORTUNATO" > data1.txt
+	cd $(CDIR)/bin && echo "FORSE LO INVIA" > data2.txt
+	cd $(CDIR)/bin && echo "PROVA 333333" > data3.txt
+	cd $(CDIR)/bin && echo "PROVA PROVA 4" > data4.txt
+	cd $(CDIR)/bin && echo "LA MACCHINA E' VELOCE" > data5.txt
+	cd $(CDIR)/bin && echo "DATA6 FORSE?^" > data6.txt
+	cd $(CDIR)/bin && echo "XDDDDD" > data7.txt
 	cd $(CDIR)/bin && gdb ./client.out
 dtest-server:
 	cd $(SDIR)/bin && gdb ./server.out

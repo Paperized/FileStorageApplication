@@ -9,6 +9,10 @@
 #define CHECK_PACKET2(p) if(p == NULL) return 0
 #define CHECK_PACKET(p) if(p == NULL) return
 
+#define DWRITE_BYTES_TO_FD(fd, buf, size, res) res = write_n_bytes_to_fd(fd, buf, size); \
+                                                if(res != size) \
+                                                    printf("[Warning]: DWRITE_BYTES_TO_FD did write %d bytes to %lu.\n", res, size);
+
 void* read_n_bytes_from_fd(int fd, ssize_t size, int* error)
 {
     ssize_t curr_bytes_read = 0;
@@ -126,6 +130,7 @@ packet_t* read_packet_from_fd(int fd, int* error)
     return new_packet;
 }
 
+// send the packet to a fd
 int send_packet_to_fd(int fd, packet_t* p)
 {
     CHECK_PACKET2(p);
@@ -136,11 +141,13 @@ int send_packet_to_fd(int fd, packet_t* p)
     memcpy((buffer + 4), &p->header.len, 4);
     memcpy((buffer + 8), p->body.content, p->header.len);
 
-    int res = write_n_bytes_to_fd(fd, buffer, packet_length);
+    int res;
+    DWRITE_BYTES_TO_FD(fd, buffer, packet_length, res);
     free(buffer);
     return res;
 }
 
+// destroy the current packet and free its content
 void destroy_packet(packet_t* p)
 {
     CHECK_PACKET(p);
@@ -150,6 +157,7 @@ void destroy_packet(packet_t* p)
     free(p);
 }
 
+// write a data to a packet based on size and return a status, -1 the packet is null, otherwise it returns the bytes written
 int write_data(packet_t* p, const void* data, size_t size)
 {
     if(data == NULL)
@@ -181,6 +189,7 @@ int write_data(packet_t* p, const void* data, size_t size)
     return 0;
 }
 
+// write a string to a packet and return a status, -1 the packet is null, otherwise it returns the bytes written
 int write_data_str(packet_t* p, const char* str)
 {
     if(p == NULL)
@@ -195,6 +204,8 @@ int write_data_str(packet_t* p, const char* str)
     return res;
 }
 
+// return a pointer to the data read from the packet based on a size
+// error is set to -1 if req is null, -2 if the size exceed the packet length, -3 if malloc failed due to memory issue
 void* read_data(packet_t* p, size_t size, int* error)
 {
     if(p == NULL)
@@ -222,9 +233,11 @@ void* read_data(packet_t* p, size_t size, int* error)
 
     memcpy(readed_data, (current_buffer + cursor_index), size);
     p->body.cursor_index = cursor_index + size;
+    *error = 0;
     return readed_data;
 }
 
+// read the entire packet content left and set the bytes read, eventually setting error to -1 if the packet is NULL
 void* read_until_end(packet_t* p, size_t* size_read, int* error)
 {
     if(p == NULL)
@@ -241,6 +254,8 @@ void* read_until_end(packet_t* p, size_t* size_read, int* error)
     return data;
 }
 
+// return a pointer to string read from a packet
+// error is set to -1 if req is null, -2 if the size exceed the packet length, -3 if malloc failed due to memory issue, -4 if the string did not terminate
 char* read_data_str(packet_t* p, int* error)
 {
     if(p == NULL)
@@ -283,6 +298,7 @@ char* read_data_str(packet_t* p, int* error)
 
     memcpy(readed_str, (current_buffer + cursor_index), needed_bytes);
     p->body.cursor_index = cursor_index + needed_bytes;
+    *error = 0;
     return readed_str;
 }
 
@@ -297,6 +313,9 @@ int is_packet_valid(packet_t* p)
     case OP_READ_FILE:
     case OP_REMOVE_FILE:
     case OP_WRITE_FILE:
+    case OP_READN_FILES:
+    case OP_OK:
+    case OP_ERROR:
         return 1;
         break;
     }

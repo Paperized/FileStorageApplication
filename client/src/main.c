@@ -14,12 +14,10 @@ void print_help();
 void send_filenames();
 void read_file(const char* filename);
 void read_filenames();
-void read_files_sent();
+void read_n_files();
 void remove_filenames();
 
 void send_file_inside_dirs();
-
-linked_list_t files_sent;
 
 int main(int argc, char **argv)
 {
@@ -56,14 +54,11 @@ int main(int argc, char **argv)
     {
         printf("connected to server.\n");
 
-        linked_list_t empty = INIT_EMPTY_LL;
-        files_sent = empty;
-
         send_filenames();
         send_file_inside_dirs();
 
         read_filenames();
-        //read_files_sent();
+        read_n_files();
 
         remove_filenames();
 
@@ -101,13 +96,11 @@ void send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remain
             if(writeFile(dir->d_name, NULL) == -1)
             {
                 printf("Skipping (Write) %s.\n", dir->d_name);
-                ll_add_tail(&files_sent, dir->d_name);
                 *remaining -= 1;
                 closeFile(dir->d_name);
                 continue;
             }
 
-            ll_add_tail(&files_sent, dir->d_name);
             *remaining -= 1;
 
             if(closeFile(dir->d_name) == -1)
@@ -152,13 +145,10 @@ void send_filenames()
         if(writeFile(curr_filename, NULL) == -1)
         {
             printf("Skipping (Write) %s.\n", curr_filename);
-            ll_add_tail(&files_sent, curr_filename);
             closeFile(curr_filename);
             curr = curr->next;
             continue;
         }
-
-        ll_add_tail(&files_sent, curr_filename);
 
         if(closeFile(curr_filename) == -1)
         {
@@ -221,20 +211,9 @@ void read_filenames()
     }
 }
 
-void read_files_sent()
+void read_n_files()
 {
-    int n = g_params.num_file_readed;
-    bool_t all = n == 0;
-
-    node_t* curr = files_sent.head;
-    while(curr != NULL && (all || n > 0))
-    {
-        char* curr_filename = curr->value;
-        read_file(curr_filename);
-
-        n -= 1;
-        curr = curr->next;
-    }
+    readNFiles(g_params.num_file_readed, g_params.dirname_readed_files);
 }
 
 void remove_filenames()

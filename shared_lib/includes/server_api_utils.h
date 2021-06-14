@@ -7,6 +7,7 @@ typedef enum server_packet_op {
     OP_UNKNOWN,
     OP_OPEN_FILE,
     OP_READ_FILE,
+    OP_READN_FILES,
     OP_WRITE_FILE,
     OP_APPEND_FILE,
     OP_CLOSE_FILE,

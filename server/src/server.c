@@ -174,6 +174,10 @@ void* handle_client_requests(void* data)
                 handle_read_file_req(request, curr);
                 break;
 
+            case OP_READN_FILES:
+                handle_nread_files_req(request, curr);
+                break;
+
             case OP_CLOSE_FILE:
                 handle_close_file_req(request, curr);
                 break;

@@ -59,6 +59,15 @@ int string_compare(void* a, void* b);
              tmpent!=NULL&&((kp=tmpent->key)!=NULL)&&((dp=tmpent->data)!=NULL); \
              tmpent=tmpent->next)
 
+#define icl_hash_foreach_mutex(ht, tmpint, tmpent, kp, dp, mutex)    \
+    pthread_mutex_lock(mutex); \
+    for (tmpint=0;tmpint<ht->nbuckets; tmpint++)        \
+        for (tmpent=ht->buckets[tmpint];                                \
+             tmpent!=NULL&&((kp=tmpent->key)!=NULL)&&((dp=tmpent->data)!=NULL); \
+             tmpent=tmpent->next)
+
+#define icl_hash_foreach_mutex_logic(mutex) pthread_mutex_unlock(mutex)
+#define icl_hash_foreach_mutex_end(mutex) pthread_mutex_unlock(mutex)
 
 #if defined(c_plusplus) || defined(__cplusplus)
 }
