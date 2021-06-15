@@ -25,8 +25,12 @@
                                     }
 
 
+pthread_mutex_t loaded_configuration_mutex = PTHREAD_MUTEX_INITIALIZER;
 configuration_params loaded_configuration;
 int server_socket_id;
+
+pthread_mutex_t server_log_mutex = PTHREAD_MUTEX_INITIALIZER;
+logging_t* server_log;
 
 pthread_mutex_t clients_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t clients_set_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -61,6 +65,39 @@ pthread_t thread_reader_id;
 pthread_mutex_t current_used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 size_t current_used_memory = 0;
 unsigned int workers_count = 0;
+
+int (*server_policy)(file_stored_t* f1, file_stored_t* f2);
+
+// 0 == equal, > 0 t1 greater, < 0 t1 less
+int cmp_time(struct timespec* t1, struct timespec* t2)
+{
+    if(t1->tv_sec != t2->tv_sec)
+        return t1->tv_sec - t2->tv_sec;
+
+    return t1->tv_nsec - t2->tv_nsec;
+}
+
+int fifo_policy(file_stored_t* f1, file_stored_t* f2)
+{
+    return cmp_time(&f1->creation_time, &f2->creation_time);
+}
+
+int lru_policy(file_stored_t* f1, file_stored_t* f2)
+{
+    return cmp_time(&f1->last_use_time, &f2->last_use_time);
+}
+
+void initialize_policy_delegate()
+{
+    // pick a policy, default is fifo
+
+    if(strncmp(loaded_configuration.policy_type, "FIFO", 4) == 0)
+        server_policy = fifo_policy;
+    else if(strncmp(loaded_configuration.policy_type, "LRU", 3) == 0)
+        server_policy = lru_policy;
+    else
+        server_policy = fifo_policy;
+}
 
 void free_keys_ht(void* key)
 {
@@ -140,7 +177,7 @@ void* handle_client_requests(void* data)
         if(quit_signal == S_FAST)
             break;
 
-        const packet_t* request = cast_to(const packet_t*, dequeue(&requests_queue));
+        packet_t* request = cast_to(packet_t*, dequeue(&requests_queue));
         UNLOCK_MUTEX(&requests_queue_mutex);
 
         if(request == NULL)
@@ -327,12 +364,10 @@ void* handle_connections(void* params)
         // add to queue
 
         client_session_t* new_client = malloc(sizeof(client_session_t));
-        memset(new_client, 0, sizeof(new_client));
+        memset(new_client, 0, sizeof(client_session_t));
         new_client->fd = new_id;
         
-        LOCK_MUTEX(&clients_list_mutex);
-        add_failed = ll_add_head(&clients_connected, new_client) != 0;
-        UNLOCK_MUTEX(&clients_list_mutex);
+        SET_VAR_MUTEX(add_failed, ll_add_head(&clients_connected, new_client) != 0, &clients_list_mutex);
 
         // if something go wrong with the queue we close the connection right away
         if(add_failed)
@@ -356,6 +391,8 @@ void* handle_connections(void* params)
                 FD_SET(new_id, &clients_connected_set);
             }
             UNLOCK_MUTEX(&clients_set_mutex);
+
+            EXEC_WITH_MUTEX(add_logging_entry(server_log, CLIENT_JOINED, new_id, NULL), &server_log_mutex);
 
             pthread_cond_signal(&clients_connected_cond);
         }
@@ -424,22 +461,21 @@ void* handle_clients_packets()
                     if(req->header.op == OP_CLOSE_CONN)
                     {
                         // chiudo la connessione
-                        LOCK_MUTEX(&clients_set_mutex);
-                        FD_CLR(curr_session->fd, &clients_connected_set);
-                        UNLOCK_MUTEX(&clients_set_mutex);
+                        EXEC_WITH_MUTEX(FD_CLR(curr_session->fd, &clients_connected_set), &clients_set_mutex);
 
                         node_t* temp = curr_client->next;
                         ll_remove_node(&clients_connected, curr_client);
-                        curr_client = temp;
 
                         if(curr_session->prev_file_opened != NULL)
                             free(curr_session->prev_file_opened);
                         
                         while(ll_count(&curr_session->files_opened) > 0)
                         {
-                            void* file;
-                            ll_remove_last(&curr_session->files_opened, &file);
+                            ll_remove_last(&curr_session->files_opened, NULL);
                         }
+
+                        curr_client = temp;
+                        EXEC_WITH_MUTEX(add_logging_entry(server_log, CLIENT_LEFT, curr_session->fd, NULL), &server_log_mutex);
 
                         free(curr_session);
                         free(req);
@@ -573,6 +609,9 @@ int wait_server_end()
     printf("Resetting signals.\n");
     reset_signals();
 
+    print_logging(server_log);
+    free_log(server_log);
+
     // this function returns only SERVER_OK but can be expanded with other return values
     return SERVER_OK;
 }
@@ -582,6 +621,8 @@ int start_server()
     int lastest_status;
 
     files_stored = icl_hash_create(10, NULL, NULL);
+    server_log = create_log();
+    initialize_policy_delegate();
 
     // Initialize and run signals
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_signals, lastest_status);
@@ -616,4 +657,78 @@ int init_server()
 
     socket_initialized = TRUE;
     return SERVER_OK;
+}
+
+void print_logging(logging_t* lg)
+{
+    int max_n_files = 0, n_cache_trigger = 0, max_mb_usage = lg->max_server_size;
+    linked_list_t *files_remained = ll_create();
+    int curr_n_files = 0;
+
+    printf("Printing full log:\n");
+
+    node_t* curr_node = lg->entry_list->head;
+    while(curr_node != NULL)
+    {
+        logging_entry_t* curr_en = curr_node->value;
+        
+        switch (curr_en->type)
+        {
+        case CLIENT_JOINED:
+            printf("[ClientJoin] Client %d joined the server.\n", curr_en->fd);
+            break;
+        case CLIENT_LEFT:
+            printf("[ClientLeft] Client %d left the server.\n", curr_en->fd);
+            break;
+        case FILE_OPENED:
+            printf("[FileOpen] File %s has been opened by %d.\n", (char*)curr_en->value, curr_en->fd);
+            break;
+        case FILE_APPEND:
+            printf("[FileAppend] File %s has been appended by %d.\n", (char*)curr_en->value, curr_en->fd);
+            break;
+        case FILE_WROTE:
+            printf("[FileWrite] File %s has been wrote by %d.\n", (char*)curr_en->value, curr_en->fd);
+            break;
+        case FILE_ADDED:
+            curr_n_files += 1;
+            if(curr_n_files > max_n_files)
+                max_n_files = curr_n_files;
+
+            int res = ll_contains_str(files_remained, curr_en->value);
+            if(res == 0)
+                ll_add_tail(files_remained, curr_en->value);
+
+            printf("[FileAdd] File %s has been added by %d.\n", (char*)curr_en->value, curr_en->fd);
+            break;
+        case FILE_CLOSED:
+            printf("[FileClose] File %s has been closed by %d.\n", (char*)curr_en->value, curr_en->fd);
+            break;
+        case FILE_REMOVED:
+            curr_n_files -= 1;
+            ll_remove_str(files_remained, curr_en->value);
+            printf("[FileRemove] File %s has been removed by %d.\n", (char*)curr_en->value, curr_en->fd);
+            break;
+        case FILE_READ:
+            printf("[FileRead] File %s has been read by %d.\n", (char*)curr_en->value, curr_en->fd);
+            break;
+        case FILE_NREAD:
+            printf("[FileNRead] %d file has been read by %d.\n", *(int*)curr_en->value, curr_en->fd);
+            break;
+        case CACHE_REPLACEMENT:
+            n_cache_trigger += 1;
+            ll_remove_str(files_remained, curr_en->value);
+            printf("[CacheReplacement] File %s has been removed due to capability issues, triggered by %d.\n", (char*)curr_en->value, curr_en->fd);
+            break;
+        default:
+            break;
+        }
+
+        curr_node = curr_node->next;
+    }
+
+    printf("End full log, printing some quick numbers:\n");
+    printf("Max number of files stored: %d.\n", max_n_files);
+    printf("Max memory used in MB: %d.\n", max_mb_usage);
+    printf("Total cache replacement: %d.\n", n_cache_trigger);
+    printf("END.\n");
 }

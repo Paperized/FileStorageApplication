@@ -66,7 +66,6 @@ int string_compare(void* a, void* b);
              tmpent!=NULL&&((kp=tmpent->key)!=NULL)&&((dp=tmpent->data)!=NULL); \
              tmpent=tmpent->next)
 
-#define icl_hash_foreach_mutex_logic(mutex) pthread_mutex_unlock(mutex)
 #define icl_hash_foreach_mutex_end(mutex) pthread_mutex_unlock(mutex)
 
 #if defined(c_plusplus) || defined(__cplusplus)

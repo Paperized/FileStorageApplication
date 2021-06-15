@@ -9,8 +9,7 @@ void print_configuration_params(const configuration_params* config)
     printf("Socket File Name: %s\n", config->socket_name);
     printf("Thread workers: %u\n", config->thread_workers);
     printf("Storage available on startup (in bytes): %u\n", config->bytes_storage_available);
-    printf("Max file number uploadable: %u\n", config->max_file_uploadable);
-    printf("Max file number uploadable per client: %u\n", config->max_file_uploadable_per_client);
+    printf("Policy type: %s\n", config->policy_type);
     printf("Backlog sockets count: %u\n", config->backlog_sockets_num);
 
     printf("****************************************\n");
@@ -32,14 +31,8 @@ int load_configuration_params(configuration_params* params)
 
     fscanf(fptr, "SERVER_THREAD_WORKERS=%u\n", &params->thread_workers);
     fscanf(fptr, "SERVER_BYTE_STORAGE_AVAILABLE=%u\n", &params->bytes_storage_available);
-    fscanf(fptr, "SERVER_MAX_NUM_UPLOADABLE=%u\n", &params->max_file_uploadable);
-    fscanf(fptr, "SERVER_MAX_NUM_UPLOADABLE_CLIENT=%u\n", &params->max_file_uploadable_per_client);
+    fscanf(fptr, "POLICY_NAME=%s\n", params->policy_type);
     fscanf(fptr, "SERVER_BACKLOG_NUM=%u\n", &params->backlog_sockets_num);
-    
-    if(fclose(fptr) == EOF)
-    {
-        printf("[Warning]: fclose returned value is EOF not 0.\n");
-    }
 
     return 0;
 }

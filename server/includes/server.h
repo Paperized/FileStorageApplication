@@ -7,6 +7,7 @@
 #include "queue.h"
 #include "utils.h"
 #include "icl_hash.h"
+#include "logging.h"
 
 #define S_NONE 0
 #define S_SOFT 1
@@ -36,6 +37,9 @@ typedef struct client_session {
 typedef struct file_stored {
     char* data;
     size_t size;
+    struct timespec creation_time;
+    struct timespec last_use_time;
+    bool_t can_be_removed;
     pthread_mutex_t rw_mutex;
 } file_stored_t;
 
@@ -59,8 +63,14 @@ extern queue_t requests_queue;
 extern pthread_mutex_t quit_signal_mutex;
 extern quit_signal_t quit_signal;
 
+extern pthread_mutex_t loaded_configuration_mutex;
 extern configuration_params loaded_configuration;
 extern int server_socket_id;
+
+extern pthread_mutex_t server_log_mutex;
+extern logging_t* server_log;
+
+extern int (*server_policy)(file_stored_t* f1, file_stored_t* f2);
 
 void free_keys_ht(void* key);
 void free_data_ht(void* key);

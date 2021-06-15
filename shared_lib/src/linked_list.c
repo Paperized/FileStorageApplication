@@ -13,7 +13,14 @@ int malloc_node(node_t** node)
     return 0;
 }
 
-size_t ll_count(linked_list_t* ll)
+linked_list_t* ll_create()
+{
+    linked_list_t* new_list = malloc(sizeof(linked_list_t));
+    memset(new_list, 0, sizeof(linked_list_t));
+    return new_list;
+}
+
+size_t ll_count(const linked_list_t* ll)
 {
     return ll->count;
 }
@@ -54,17 +61,19 @@ int ll_add_tail(linked_list_t* ll, void* value)
     return 0;
 }
 
-void ll_remove_first(linked_list_t* ll, void* value)
+void ll_remove_first(linked_list_t* ll, void** value)
 {
     if(ll->count <= 0)
     {
-        value = NULL;
+        if(value != NULL)
+            *value = NULL;
         return;
     }
 
     node_t* first = ll->head;
     node_t* next = first->next;
-    value = first->value;
+    if(value != NULL)
+        *value = first->value;
 
     if(next == NULL)
     {
@@ -83,12 +92,14 @@ void ll_remove_last(linked_list_t* ll, void** value)
 {
     if(ll->count <= 0)
     {
-        value = NULL;
+        if(value != NULL)
+            *value = NULL;
         return;
     }
 
     node_t* last = ll->tail;
-    *value = last->value;
+    if(value != NULL)
+        *value = last->value;
 
     if(last == ll->head)
     {
@@ -167,7 +178,28 @@ int ll_remove_node(linked_list_t* ll, node_t* node)
     return 0;
 }
 
-int ll_int_get_max(linked_list_t* ll)
+void ll_remove_str(linked_list_t* ll, char* str)
+{
+    if(ll == NULL || str == NULL) return;
+
+    node_t* curr = ll->head;
+    node_t* prev = NULL;
+    while(curr != NULL && strncmp(curr->value, str, 108) != 0)
+    {
+        prev = curr;
+        curr = curr->next;
+    }
+
+    if(curr != NULL)
+    {
+        prev->next = curr->next;
+        free(curr->value);
+        free(curr);
+        ll->count -= 1;
+    }
+}
+
+int ll_int_get_max(const linked_list_t* ll)
 {
     if(ll == NULL) return -1;
 
@@ -195,4 +227,18 @@ void ll_empty(linked_list_t* ll)
         ll_remove_last(ll, &value);
         free(value);
     }
+}
+
+int ll_contains_str(const linked_list_t* ll, char* str)
+{
+    node_t* curr = ll->head;
+    while(curr != NULL)
+    {
+        if(strncmp(curr->value, str, 108) == 0)
+            return 1;
+
+        curr = curr->next;
+    }
+
+    return 0; 
 }

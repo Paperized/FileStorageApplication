@@ -12,8 +12,7 @@ typedef struct configuration_params {
     unsigned int thread_workers;
     unsigned int bytes_storage_available;
     char socket_name[MAX_PATHNAME_API_LENGTH];
-    unsigned int max_file_uploadable;
-    unsigned int max_file_uploadable_per_client;
+    char policy_type[40];
     unsigned int backlog_sockets_num;
 } configuration_params;
 

@@ -23,8 +23,71 @@ int check_memory_capacity(size_t next_alloc_size)
 {
     size_t memory_available;
     GET_VAR_MUTEX(current_used_memory, memory_available, &current_used_memory_mutex);
+    size_t total_memory;
+    GET_VAR_MUTEX(loaded_configuration.bytes_storage_available, total_memory, &loaded_configuration_mutex);
+    return (memory_available + next_alloc_size) - total_memory;
+}
 
-    return (memory_available + next_alloc_size) - loaded_configuration.bytes_storage_available;
+void add_memory_usage(size_t to_add)
+{
+    size_t used_memory;
+    LOCK_MUTEX(&current_used_memory_mutex);
+    current_used_memory += to_add;
+    used_memory = current_used_memory;
+    UNLOCK_MUTEX(&current_used_memory_mutex);
+
+    SET_VAR_MUTEX(server_log->max_server_size, used_memory > server_log->max_server_size ?
+                                                    used_memory : server_log->max_server_size, &server_log_mutex);
+}
+
+void sub_memory_usage(size_t to_add)
+{
+    LOCK_MUTEX(&current_used_memory_mutex);
+    current_used_memory -= to_add;
+    UNLOCK_MUTEX(&current_used_memory_mutex);
+}
+
+bool_t is_total_memory_enough(size_t amount)
+{
+    size_t total_memory;
+    GET_VAR_MUTEX(loaded_configuration.bytes_storage_available, total_memory, &loaded_configuration_mutex);
+
+    return total_memory > amount;
+}
+
+void find_next_file_by_policy(char** pathname_out, file_stored_t** file_out)
+{
+    char* curr_path = NULL;
+    file_stored_t* curr_file = NULL;
+
+    icl_entry_t* entry = NULL;
+    icl_entry_t* top_entry = NULL;
+
+    int x;
+    icl_hash_foreach(files_stored, x, entry, curr_path, curr_file) {
+        if(top_entry == NULL && entry != NULL && curr_file->can_be_removed && curr_file->size > 0)
+        {
+            top_entry = entry;
+        }
+        else
+        {
+            if(entry != NULL && curr_file->can_be_removed && curr_file->size > 0 && server_policy(top_entry->data, curr_file) > 0)
+            {
+                top_entry = entry;
+            }
+        }
+    }
+
+    if(top_entry == NULL)
+    {
+        *pathname_out = NULL;
+        *file_out = NULL;
+    }
+    else
+    {
+        *pathname_out = top_entry->key;
+        *file_out = top_entry->data;
+    }
 }
 
 void session_remove_file_opened(client_session_t* s, const char* pathname)
@@ -66,8 +129,34 @@ void on_file_content_removed(void* file)
 {
     file_stored_t* fcontent = file;
     free(fcontent->data);
+    UNLOCK_MUTEX(&fcontent->rw_mutex);
     pthread_mutex_destroy(&fcontent->rw_mutex);
     free(fcontent);
+}
+
+void cache_make_space_fifo(int fd, size_t needed_space)
+{
+    LOCK_MUTEX(&files_stored_mutex);
+
+    while(needed_space > 0)
+    {
+        char* pathfile;
+        file_stored_t* realfile;
+
+        find_next_file_by_policy(&pathfile, &realfile);
+        if(realfile != NULL)
+        {
+            LOCK_MUTEX(&realfile->rw_mutex);
+            icl_hash_delete(files_stored, pathfile, on_file_name_removed, on_file_content_removed);
+
+            sub_memory_usage(realfile->size);
+            needed_space -= realfile->size;
+
+            EXEC_WITH_MUTEX(add_logging_entry_str(server_log, CACHE_REPLACEMENT, fd, pathfile), &server_log_mutex);
+        }
+    }
+
+    UNLOCK_MUTEX(&files_stored_mutex);
 }
 
 bool_t session_contains_file_opened(client_session_t* s, const char* pathname)
@@ -99,7 +188,7 @@ client_session_t* get_session(int fd)
     return NULL;
 }
 
-void handle_open_file_req(const packet_t* req, pthread_t curr)
+void handle_open_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_OPEN_FILE request operation.\n", curr);
     int error_read;
@@ -136,8 +225,13 @@ void handle_open_file_req(const packet_t* req, pthread_t curr)
         }
         else
         {
+            EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_ADDED, req->header.fd_sender, pathname), &server_log_mutex);
             file = malloc(sizeof(file_stored_t));
             memset(file, 0, sizeof(file_stored_t));
+            clock_gettime(CLOCK_REALTIME, &file->creation_time);
+            file->last_use_time = file->creation_time;
+            file->can_be_removed = TRUE;
+
             pthread_mutex_init(&file->rw_mutex, NULL);
 
             icl_hash_insert(files_stored, pathname, file);
@@ -159,6 +253,8 @@ void handle_open_file_req(const packet_t* req, pthread_t curr)
 
     if(error == ERR_NONE)
     {
+        EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_OPENED, req->header.fd_sender, pathname), &server_log_mutex);
+
         response = create_packet(OP_OK);
         if(session_contains_file_opened(session, pathname) == FALSE)
         {
@@ -186,7 +282,7 @@ void handle_open_file_req(const packet_t* req, pthread_t curr)
     free(flags);
 }
 
-void handle_write_file_req(const packet_t* req, pthread_t curr)
+void handle_write_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_WRITE_FILE request operation.\n", curr);
     int error_read;
@@ -212,29 +308,46 @@ void handle_write_file_req(const packet_t* req, pthread_t curr)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
-        session->prev_file_opened = NULL;
-
         void* buffer;
         size_t size_b;
         int res = read_file_util(pathname, &buffer, &size_b);
-
-        if(res > 0)
+        bool_t enough_totm = is_total_memory_enough(size_b);
+        if(!enough_totm)
         {
+            error = ERR_FILE_TOO_BIG;
+        }
+        else if(res < 0)
+        {
+            error = ERR_PATH_NOT_EXISTS;
+        }
+        else
+        {
+            if(curr_file->data != NULL)
+            {
+                if(curr_file->size > 0)
+                    sub_memory_usage(curr_file->size);
+
+                free(curr_file->data);
+            }
+
+            curr_file->data = NULL;
+            curr_file->size = 0;
+
             int exceeded_memory = check_memory_capacity(size_b);
             if(exceeded_memory > 0)
             {
-                // remove files for x bytes
                 printf("Server full.\n");
+                cache_make_space_fifo(session->fd, exceeded_memory);
             }
 
             curr_file->data = buffer;
             curr_file->size = size_b;
-        }
-        else
-        {
-            error = ERR_PATH_NOT_EXISTS;
+            add_memory_usage(size_b);
+
+            EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_WROTE, req->header.fd_sender, session->prev_file_opened), &server_log_mutex);
         }
 
+        session->prev_file_opened = NULL;
         UNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
@@ -257,7 +370,7 @@ void handle_write_file_req(const packet_t* req, pthread_t curr)
     free(pathname);
 }
 
-void handle_append_file_req(const packet_t* req, pthread_t curr)
+void handle_append_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_APPEND_FILE request operation.\n", curr);
     int error_read;
@@ -292,25 +405,38 @@ void handle_append_file_req(const packet_t* req, pthread_t curr)
     else
     {
         buffer = read_until_end(req, &buff_size, &error_read);
-        int exceeded_amount = check_memory_capacity(buff_size);
-        if(exceeded_amount > 0)
+        bool_t enough_totm = is_total_memory_enough(buff_size);
+        if(!enough_totm)
         {
-            // rimuovi qualche file
-            printf("Server full.\n");
+            error = ERR_FILE_TOO_BIG;
+        }
+        else
+        {
+            int exceeded_memory = check_memory_capacity(buff_size);
+            if(exceeded_memory > 0)
+            {
+                printf("Server full.\n");
+                curr_file->can_be_removed = FALSE;
+                cache_make_space_fifo(session->fd, exceeded_memory);
+            }
+
+            curr_file->data = realloc(curr_file->data, curr_file->size + buff_size);
+            if(curr_file->data == NULL)
+            {
+                printf("Out of memory.\n");
+            }
+
+            memcpy(curr_file->data + curr_file->size, buffer, buff_size);
+            add_memory_usage(buff_size);
         }
 
-        curr_file->data = realloc(curr_file->data, curr_file->size + buff_size);
-        if(curr_file->data == NULL)
-        {
-            printf("Out of memory.\n");
-        }
-
-        memcpy(curr_file->data + curr_file->size, buffer, buff_size);
         UNLOCK_MUTEX(&curr_file->rw_mutex);
     }
 
     if(error != ERR_NONE)
     {
+        EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_APPEND, req->header.fd_sender, pathname), &server_log_mutex);
+
         response = create_packet(OP_ERROR);
         write_data(response, &error, sizeof(server_errors_t));
     }
@@ -330,7 +456,7 @@ void handle_append_file_req(const packet_t* req, pthread_t curr)
     free(pathname);
 }
 
-void handle_read_file_req(const packet_t* req, pthread_t curr)
+void handle_read_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_READ_FILE request operation.\n", curr);
     int error_read;
@@ -373,6 +499,8 @@ void handle_read_file_req(const packet_t* req, pthread_t curr)
 
     if(error != ERR_NONE)
     {
+        EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_APPEND, req->header.fd_sender, pathname), &server_log_mutex);
+        
         response = create_packet(OP_ERROR);
         write_data(response, &error, sizeof(server_errors_t));
     }
@@ -386,12 +514,12 @@ void handle_read_file_req(const packet_t* req, pthread_t curr)
     free(pathname);
 }
 
-void handle_nread_files_req(const packet_t* req, pthread_t curr)
+void handle_nread_files_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_NREAD_FILES request operation.\n", curr);
     int error_read;
     int *n_to_read = read_data(req, sizeof(int), &error_read);
-    bool_t read_all = *n_to_read == 0;
+    bool_t read_all = *n_to_read <= 0;
 
     char* dirname = read_data_str(req, &error_read);
     if(dirname == NULL)
@@ -434,6 +562,7 @@ void handle_nread_files_req(const packet_t* req, pthread_t curr)
     }
     icl_hash_foreach_mutex_end(&files_stored_mutex);
 
+    EXEC_WITH_MUTEX(add_logging_entry_int(server_log, FILE_NREAD, session->fd, *n_to_read), &server_log_mutex);
     response = create_packet(OP_OK);
     write_data(response, &total_read, sizeof(int));
 
@@ -447,7 +576,7 @@ void handle_nread_files_req(const packet_t* req, pthread_t curr)
     free(n_to_read);
 }
 
-void handle_remove_file_req(const packet_t* req, pthread_t curr)
+void handle_remove_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_REMOVE_FILE request operation.\n", curr);
     int error_read;
@@ -478,15 +607,15 @@ void handle_remove_file_req(const packet_t* req, pthread_t curr)
     {
         session->prev_file_opened = NULL;
 
-        UNLOCK_MUTEX(&curr_file->rw_mutex);
-        int memory_saved = curr_file->size;
+        size_t memory_saved = curr_file->size;
         icl_hash_delete(files_stored, pathname, on_file_name_removed, on_file_content_removed);
-        SET_VAR_MUTEX(current_used_memory, current_used_memory + memory_saved, &current_used_memory_mutex);
+        sub_memory_usage(memory_saved);
         UNLOCK_MUTEX(&files_stored_mutex);
     }
 
     if(error != ERR_NONE)
     {
+        EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_REMOVED, session->fd, pathname), &server_log_mutex);
         response = create_packet(OP_ERROR);
         write_data(response, &error, sizeof(server_errors_t));
     }
@@ -504,7 +633,7 @@ void handle_remove_file_req(const packet_t* req, pthread_t curr)
     free(pathname);
 }
 
-void handle_close_file_req(const packet_t* req, pthread_t curr)
+void handle_close_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_CLOSE_FILE request operation.\n", curr);
     int error_read;
@@ -540,6 +669,7 @@ void handle_close_file_req(const packet_t* req, pthread_t curr)
 
     if(error != ERR_NONE)
     {
+        EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_CLOSED, session->fd, pathname), &server_log_mutex);
         response = create_packet(OP_ERROR);
         write_data(response, &error, sizeof(server_errors_t));
     }

@@ -18,16 +18,16 @@ typedef enum bool { FALSE, TRUE } bool_t;
                         printf("Unlockato in riga: %d in %s Mutex: %s", __LINE__, __FILE__, (char*)#m); \
                         printf(".\n")
 
-#define SET_VAR_MUTEX(var, value, m)  pthread_mutex_lock(m); \
-                                        var = value; \
+#define SET_VAR_MUTEX(var, expr, m)  pthread_mutex_lock(m); \
+                                        var = expr; \
                                         pthread_mutex_unlock(m)
 
-#define GET_VAR_MUTEX(var, output, m) pthread_mutex_lock(m); \
-                                      output = var; \
+#define GET_VAR_MUTEX(expr, output, m) pthread_mutex_lock(m); \
+                                      output = expr; \
                                       pthread_mutex_unlock(m)
 
-#define EXEC_WITH_MUTEX(var, m) pthread_mutex_lock(m); \
-                                        var; \
+#define EXEC_WITH_MUTEX(istr, m) pthread_mutex_lock(m); \
+                                        istr; \
                                         pthread_mutex_unlock(m)
 
 int read_file_util(const char* pathname, void** buffer, size_t* size);
