@@ -12,7 +12,9 @@
 #define INITIALIZE_SERVER_FUNCTIONALITY(initializer, status) status = initializer(); \
                                                                 if(status != SERVER_OK) \
                                                                 { \
-                                                                    rollback_server_and_quit(); \
+                                                                    SET_VAR_MUTEX(quit_signal, S_FAST, &quit_signal_mutex); \
+                                                                    server_wait_for_threads(); \
+                                                                    server_cleanup(); \
                                                                     return status; \
                                                                 }
 
@@ -26,7 +28,7 @@
 
 
 pthread_mutex_t loaded_configuration_mutex = PTHREAD_MUTEX_INITIALIZER;
-configuration_params loaded_configuration;
+configuration_params_t* loaded_configuration;
 int server_socket_id;
 
 pthread_mutex_t server_log_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -36,12 +38,12 @@ pthread_mutex_t clients_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t clients_set_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_cond_t clients_connected_cond = PTHREAD_COND_INITIALIZER;
-linked_list_t clients_connected = INIT_EMPTY_LL;
+linked_list_t* clients_connected;
 fd_set clients_connected_set;
 
 pthread_cond_t request_received_cond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t requests_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-queue_t requests_queue = INIT_EMPTY_QUEUE;
+queue_t* requests_queue;
 
 pthread_mutex_t quit_signal_mutex = PTHREAD_MUTEX_INITIALIZER;
 quit_signal_t quit_signal = S_NONE;
@@ -58,7 +60,6 @@ bool_t reader_initialized = FALSE;
 
 /** THREAD IDS **/
 pthread_t* thread_workers_ids;
-pthread_t thread_signals_id;
 pthread_t thread_accepter_id;
 pthread_t thread_reader_id;
 
@@ -90,10 +91,12 @@ int lru_policy(file_stored_t* f1, file_stored_t* f2)
 void initialize_policy_delegate()
 {
     // pick a policy, default is fifo
+    char policy[MAX_POLICY_LENGTH];
+    config_get_policy_name(loaded_configuration, policy);
 
-    if(strncmp(loaded_configuration.policy_type, "FIFO", 4) == 0)
+    if(strncmp(policy, "FIFO", 4) == 0)
         server_policy = fifo_policy;
-    else if(strncmp(loaded_configuration.policy_type, "LRU", 3) == 0)
+    else if(strncmp(policy, "LRU", 3) == 0)
         server_policy = lru_policy;
     else
         server_policy = fifo_policy;
@@ -119,26 +122,20 @@ void free_data_ht(void* key)
 int get_max_fid_sessions()
 {
     int max = 0;
-    node_t* curr = clients_connected.head;
+    node_t* curr = ll_get_head_node(clients_connected);
     if(curr == NULL)
         return max;
 
     while(curr != NULL)
     {
-        client_session_t* session = curr->value;
+        client_session_t* session = node_get_value(curr);
         if(session->fd > max)
             max = session->fd;
 
-        curr = curr->next;
+        curr = node_get_next(curr);
     }
 
     return max;
-}
-
-int load_config_server()
-{
-    CHECK_ERROR(load_configuration_params(&loaded_configuration) == -1, ERR_READING_CONFIG);
-    return SERVER_OK;
 }
 
 quit_signal_t get_quit_signal()
@@ -162,7 +159,7 @@ void* handle_client_requests(void* data)
     while((quit_signal = get_quit_signal()) == S_NONE)
     {
         LOCK_MUTEX(&requests_queue_mutex);
-        while(count_q(&requests_queue) == 0)
+        while(count_q(requests_queue) == 0)
         {
             if(pthread_cond_wait(&request_received_cond, &requests_queue_mutex) != 0)
             {
@@ -177,7 +174,7 @@ void* handle_client_requests(void* data)
         if(quit_signal == S_FAST)
             break;
 
-        packet_t* request = cast_to(packet_t*, dequeue(&requests_queue));
+        packet_t* request = cast_to(packet_t*, dequeue(requests_queue));
         UNLOCK_MUTEX(&requests_queue_mutex);
 
         if(request == NULL)
@@ -235,21 +232,23 @@ void* handle_client_requests(void* data)
     return NULL;
 }
 
-void* handle_signals(void* params)
+quit_signal_t server_wait_end_signal()
 {
     sigset_t managed_signals;
-    CHECK_ERROR(sigemptyset(&managed_signals) == -1, (void*)ERR_SERVER_SIGNALS);
-    CHECK_ERROR(sigaddset(&managed_signals, SIGQUIT) == -1, (void*)ERR_SERVER_SIGNALS);
-    CHECK_ERROR(sigaddset(&managed_signals, SIGHUP) == -1, (void*)ERR_SERVER_SIGNALS);
-    CHECK_ERROR(sigaddset(&managed_signals, SIGINT) == -1, (void*)ERR_SERVER_SIGNALS);
-    CHECK_ERROR(pthread_sigmask(SIG_SETMASK, &managed_signals, NULL) == -1, (void*)ERR_SERVER_SIGNALS);
+    CHECK_ERROR(sigemptyset(&managed_signals) == -1, S_FAST);
+    CHECK_ERROR(sigaddset(&managed_signals, SIGQUIT) == -1, S_FAST);
+    CHECK_ERROR(sigaddset(&managed_signals, SIGHUP) == -1, S_FAST);
+    CHECK_ERROR(sigaddset(&managed_signals, SIGINT) == -1, S_FAST);
+    CHECK_ERROR(pthread_sigmask(SIG_SETMASK, &managed_signals, NULL) == -1, S_FAST);
     
     quit_signal_t local_quit_signal = S_NONE;
     quit_signal_t shared_quit_signal;
     int last_signal;
+    signals_initialized = TRUE;
+
     while((shared_quit_signal = get_quit_signal()) == S_NONE && local_quit_signal == S_NONE)
     {
-        CHECK_ERROR(sigwait(&managed_signals, &last_signal) != 0, (void*)ERR_SERVER_SIGNALS);
+        CHECK_ERROR(sigwait(&managed_signals, &last_signal) != 0, S_FAST);
 
         switch(last_signal)
         {
@@ -270,6 +269,7 @@ void* handle_signals(void* params)
         SET_VAR_MUTEX(quit_signal, local_quit_signal, &quit_signal_mutex);
     }
 
+    // debug
     switch(shared_quit_signal)
     {
         case S_NONE:
@@ -289,64 +289,22 @@ void* handle_signals(void* params)
             break;
     }
 
-    return NULL;
+    return shared_quit_signal;
 }
 
 int initialize_workers()
 {
-    thread_workers_ids = malloc(loaded_configuration.thread_workers * (sizeof(pthread_t)));
+    thread_workers_ids = malloc(config_get_num_workers(loaded_configuration) * (sizeof(pthread_t)));
     if(thread_workers_ids == NULL)
         return ERR_SOCKET_OUT_OF_MEMORY;
 
-    for(int i = 0; i < loaded_configuration.thread_workers; ++i)
+    for(int i = 0; i < config_get_num_workers(loaded_configuration); ++i)
     {
         CHECK_ERROR(pthread_create(&thread_workers_ids[i], NULL, &handle_client_requests, NULL) != 0, ERR_SOCKET_INIT_WORKERS);
         workers_count += 1;
     }
 
     workers_initialized = TRUE;
-    return SERVER_OK;
-}
-
-int enable_needed_signales()
-{
-    sigset_t bitmask;
-
-    CHECK_ERROR(sigemptyset(&bitmask) == -1, ERR_SERVER_SIGNALS);
-    CHECK_ERROR(sigaddset(&bitmask, SIGQUIT) == -1, ERR_SERVER_SIGNALS);
-    CHECK_ERROR(sigaddset(&bitmask, SIGHUP) == -1, ERR_SERVER_SIGNALS);
-    CHECK_ERROR(sigaddset(&bitmask, SIGINT) == -1, ERR_SERVER_SIGNALS);
-    CHECK_ERROR(pthread_sigmask(SIG_SETMASK, &bitmask, NULL) != 0, ERR_SERVER_SIGNALS);
-
-    return SERVER_OK;
-}
-
-int reset_signals()
-{
-    sigset_t bitmask;
-
-    CHECK_ERROR(sigemptyset(&bitmask) == -1, ERR_SERVER_SIGNALS);
-    CHECK_ERROR(pthread_sigmask(SIG_SETMASK, &bitmask, NULL) != 0, ERR_SERVER_SIGNALS);
-
-    return SERVER_OK;
-}
-
-int disable_signals()
-{
-    sigset_t bitmask;
-
-    CHECK_ERROR(sigfillset(&bitmask) == -1, ERR_SERVER_SIGNALS);
-    CHECK_ERROR(pthread_sigmask(SIG_SETMASK, &bitmask, NULL) != 0, ERR_SERVER_SIGNALS);
-
-    return SERVER_OK;
-}
-
-int initialize_signals()
-{
-    CHECK_ERROR(pthread_create(&thread_signals_id, NULL, &handle_signals, NULL), ERR_SERVER_SIGNALS);
-    signals_initialized = TRUE;
-
-    // Reset signals masked in the initialization
     return SERVER_OK;
 }
 
@@ -367,7 +325,7 @@ void* handle_connections(void* params)
         memset(new_client, 0, sizeof(client_session_t));
         new_client->fd = new_id;
         
-        SET_VAR_MUTEX(add_failed, ll_add_head(&clients_connected, new_client) != 0, &clients_list_mutex);
+        SET_VAR_MUTEX(add_failed, ll_add_head(clients_connected, new_client) != 0, &clients_list_mutex);
 
         // if something go wrong with the queue we close the connection right away
         if(add_failed)
@@ -423,7 +381,7 @@ void* handle_clients_packets()
 
         LOCK_MUTEX(&clients_list_mutex);
         size_t n_clients;
-        while((n_clients = ll_count(&clients_connected)) == 0)
+        while((n_clients = ll_count(clients_connected)) == 0)
         {
             pthread_cond_wait(&clients_connected_cond, &clients_list_mutex);
 
@@ -444,12 +402,12 @@ void* handle_clients_packets()
             continue;
 
         LOCK_MUTEX(&clients_list_mutex);
-        node_t* curr_client = ll_get_head_node(&clients_connected);
+        node_t* curr_client = ll_get_head_node(clients_connected);
 
         int error;
         while(curr_client != NULL)
         {
-            client_session_t* curr_session = curr_client->value;
+            client_session_t* curr_session = node_get_value(curr_client);
 
             if(FD_ISSET(curr_session->fd, &current_clients))
             {
@@ -463,15 +421,15 @@ void* handle_clients_packets()
                         // chiudo la connessione
                         EXEC_WITH_MUTEX(FD_CLR(curr_session->fd, &clients_connected_set), &clients_set_mutex);
 
-                        node_t* temp = curr_client->next;
-                        ll_remove_node(&clients_connected, curr_client);
+                        node_t* temp = node_get_next(curr_client);
+                        ll_remove_node(clients_connected, curr_client);
 
                         if(curr_session->prev_file_opened != NULL)
                             free(curr_session->prev_file_opened);
                         
-                        while(ll_count(&curr_session->files_opened) > 0)
+                        while(ll_count(curr_session->files_opened) > 0)
                         {
-                            ll_remove_last(&curr_session->files_opened, NULL);
+                            ll_remove_last(curr_session->files_opened, NULL);
                         }
 
                         curr_client = temp;
@@ -484,8 +442,8 @@ void* handle_clients_packets()
 
                     LOCK_MUTEX(&requests_queue_mutex);
 
-                    enqueue_m(&requests_queue, req);
-                    if(count_q(&requests_queue) == 1)
+                    enqueue_m(requests_queue, req);
+                    if(count_q(requests_queue) == 1)
                         pthread_cond_signal(&request_received_cond);
 
                     UNLOCK_MUTEX(&requests_queue_mutex);
@@ -494,7 +452,7 @@ void* handle_clients_packets()
                 // we ignore failed packets returned by the read
             }
 
-            curr_client = curr_client->next;
+            curr_client = node_get_next(curr_client);
         }
         UNLOCK_MUTEX(&clients_list_mutex);
     }
@@ -511,76 +469,30 @@ int initialize_reader()
     return SERVER_OK;
 }
 
-void rollback_server_and_quit()
-{
-    printf("Rollback server and quitting.\n");
-
-    // wait all threads to finish
-    if(signals_initialized)
-    {
-        printf("Quitting signal thread.\n");
-        pthread_cancel(thread_signals_id);
-        pthread_join(thread_signals_id, NULL);
-    }
-
-    // Capire come chiudere i workers in attesa di una condizione
-    if(workers_count > 0)
-    {
-        printf("Quitting workers thread.\n");
-        for(int i = 0; i < workers_count; ++i)
-        {
-            pthread_cancel(thread_workers_ids[i]);
-            pthread_join(thread_workers_ids[i], NULL);
-        }
-    }
-
-    icl_hash_destroy(files_stored, free_keys_ht, free_data_ht);
-
-    if(reader_initialized)
-    {
-        printf("Quitting reader thread.\n");
-        pthread_cancel(thread_reader_id);
-        pthread_join(thread_reader_id, NULL);
-    }
-
-    printf("Freeing memory.\n");
-    free(thread_workers_ids);
-
-    if(socket_initialized)
-    {
-        printf("Closing socket and removing it.\n");
-        close(server_socket_id);
-        remove(loaded_configuration.socket_name);
-    }
-
-    printf("Resetting signals.\n");
-    reset_signals();
-}
-
-int wait_server_end()
+int server_wait_for_threads()
 {
     quit_signal_t closing_signal;
 
     // wait for a closing signal
-    pthread_join(thread_signals_id, NULL);
     GET_VAR_MUTEX(quit_signal, closing_signal, &quit_signal_mutex);
 
-    pthread_cancel(thread_accepter_id);
-    pthread_join(thread_accepter_id, NULL);
+    if(connection_accepter_initialized)
+    {
+        pthread_cancel(thread_accepter_id);
+        pthread_join(thread_accepter_id, NULL);
+    }
 
     if(closing_signal == S_FAST)
         pthread_cond_broadcast(&request_received_cond);
 
     printf("Joining workers thread.\n");
-    for(int i = 0; i < loaded_configuration.thread_workers; ++i)
+    for(int i = 0; i < workers_count; ++i)
     {
         //if(closing_signal == S_FAST)
         //    pthread_cancel(thread_workers_ids[i]);
 
         pthread_join(thread_workers_ids[i], NULL);
     }
-
-    icl_hash_destroy(files_stored, free_keys_ht, free_data_ht);
 
     // The thread might be locked in a wait
     if(closing_signal == S_FAST)
@@ -590,24 +502,26 @@ int wait_server_end()
         pthread_join(thread_reader_id, NULL);
     }
 
+    return SERVER_OK;
+}
+
+int server_cleanup()
+{
     printf("Freeing memory.\n");
+
+    icl_hash_destroy(files_stored, free_keys_ht, free_data_ht);
     free(thread_workers_ids);
 
     LOCK_MUTEX(&clients_list_mutex);
-    while(ll_count(&clients_connected) > 0)
-    {
-        printf("count: %lu.\n", ll_count(&clients_connected));
-        void* client_id = NULL;
-        ll_remove_first(&clients_connected, client_id);
-    }
+    ll_empty(clients_connected, NULL);
     UNLOCK_MUTEX(&clients_list_mutex);
 
     printf("Closing socket and removing it.\n");
     close(server_socket_id);
-    remove(loaded_configuration.socket_name);
 
-    printf("Resetting signals.\n");
-    reset_signals();
+    char socket_name[MAX_PATHNAME_API_LENGTH];
+    config_get_socket_name(loaded_configuration, socket_name);
+    remove(socket_name);
 
     print_logging(server_log);
     free_log(server_log);
@@ -624,8 +538,6 @@ int start_server()
     server_log = create_log();
     initialize_policy_delegate();
 
-    // Initialize and run signals
-    INITIALIZE_SERVER_FUNCTIONALITY(initialize_signals, lastest_status);
     // Initialize and run workers
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_workers, lastest_status);
     // Initialize and run connections
@@ -635,25 +547,31 @@ int start_server()
 
     printf("Server started with PID:%d.\n", getpid());
 
-    // wait until end
-    return wait_server_end();
+    // blocking call, return on quit signal
+    server_wait_end_signal();
+    server_wait_for_threads();
+
+    return server_cleanup();
 }
 
-int init_server()
+int init_server(const configuration_params_t* config)
 {
-    CHECK_ERROR(disable_signals() == ERR_SERVER_SIGNALS, ERR_SERVER_SIGNALS);
+    loaded_configuration = (configuration_params_t*)config;
 
     server_socket_id = socket(AF_UNIX, SOCK_STREAM, 0);
     CHECK_ERROR(server_socket_id == -1, ERR_SOCKET_FAILED);
 
+    char socket_name[MAX_PATHNAME_API_LENGTH];
+    config_get_socket_name(loaded_configuration, socket_name);
+
     struct sockaddr_un sa;
-    strncpy(sa.sun_path, loaded_configuration.socket_name, MAX_PATHNAME_API_LENGTH);
+    strncpy(sa.sun_path, socket_name, MAX_PATHNAME_API_LENGTH);
     sa.sun_family = AF_UNIX;
 
-    remove(loaded_configuration.socket_name);
+    remove(socket_name);
 
     CHECK_ERROR(bind(server_socket_id, (struct sockaddr*)&sa, sizeof(sa)) == -1, ERR_SOCKET_BIND_FAILED);
-    CHECK_ERROR(listen(server_socket_id, loaded_configuration.backlog_sockets_num) == -1, ERR_SOCKET_LISTEN_FAILED);
+    CHECK_ERROR(listen(server_socket_id, config_get_backlog_sockets_num(loaded_configuration)) == -1, ERR_SOCKET_LISTEN_FAILED);
 
     socket_initialized = TRUE;
     return SERVER_OK;
@@ -667,10 +585,10 @@ void print_logging(logging_t* lg)
 
     printf("Printing full log:\n");
 
-    node_t* curr_node = lg->entry_list->head;
+    node_t* curr_node = ll_get_head_node(lg->entry_list);
     while(curr_node != NULL)
     {
-        logging_entry_t* curr_en = curr_node->value;
+        logging_entry_t* curr_en = node_get_value(curr_node);
         
         switch (curr_en->type)
         {
@@ -723,7 +641,7 @@ void print_logging(logging_t* lg)
             break;
         }
 
-        curr_node = curr_node->next;
+        curr_node = node_get_next(curr_node);
     }
 
     printf("End full log, printing some quick numbers:\n");

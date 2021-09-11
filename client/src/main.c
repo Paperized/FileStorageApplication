@@ -120,10 +120,10 @@ void send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remain
 
 void send_file_inside_dirs()
 {
-    node_t* curr_dir = g_params.dirname_file_sendable.head;
+    node_t* curr_dir = ll_get_head_node(g_params.dirname_file_sendable);
     while(curr_dir != NULL)
     {
-        string_int_pair_t* value = curr_dir->value;
+        string_int_pair_t* value = node_get_value(curr_dir);
         int remaining = value->int_value;
         send_files_inside_dir_rec(value->str_value, value->int_value == 0, &remaining);
     }
@@ -131,14 +131,14 @@ void send_file_inside_dirs()
 
 void send_filenames()
 {
-    node_t* curr = g_params.file_list_sendable.head;
+    node_t* curr = ll_get_head_node(g_params.file_list_sendable);
     while(curr != NULL)
     {
-        char* curr_filename = curr->value;
+        char* curr_filename = node_get_value(curr);
         if(openFile(curr_filename, OP_CREATE) == -1)
         {
             printf("Skipping (Open) %s.\n", curr_filename);
-            curr = curr->next;
+            curr = node_get_next(curr);
             continue;
         }
 
@@ -146,7 +146,7 @@ void send_filenames()
         {
             printf("Skipping (Write) %s.\n", curr_filename);
             closeFile(curr_filename);
-            curr = curr->next;
+            curr = node_get_next(curr);
             continue;
         }
 
@@ -155,7 +155,7 @@ void send_filenames()
             printf("Skipping (Close) %s.\n", curr_filename);
         }
 
-        curr = curr->next;
+        curr = node_get_next(curr);
     }
 }
 
@@ -201,13 +201,13 @@ void read_file(const char* filename)
 
 void read_filenames()
 {
-    node_t* curr = g_params.file_list_readable.head;
+    node_t* curr = ll_get_head_node(g_params.file_list_readable);
     while(curr != NULL)
     {
-        char* curr_filename = curr->value;
+        char* curr_filename = node_get_value(curr);
         read_file(curr_filename);
 
-        curr = curr->next;
+        curr = node_get_next(curr);
     }
 }
 
@@ -218,10 +218,10 @@ void read_n_files()
 
 void remove_filenames()
 {
-    node_t* curr = g_params.file_list_removable.head;
+    node_t* curr = ll_get_head_node(g_params.file_list_removable);
     while(curr != NULL)
     {
-        char* curr_filename = curr->value;
+        char* curr_filename = node_get_value(curr);
         if(openFile(curr_filename, OP_LOCK) == -1)
         {
             printf("Skipping %s.\n", curr_filename);
@@ -235,7 +235,7 @@ void remove_filenames()
             continue;
         }
 
-        curr = curr->next;
+        curr = node_get_next(curr);
     }
 }
 

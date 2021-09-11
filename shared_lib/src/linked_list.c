@@ -1,6 +1,17 @@
 #include <string.h>
 #include "linked_list.h"
 
+struct node {
+    void* value;
+    struct node* next;
+};
+
+struct linked_list {
+    size_t count;
+    node_t* head;
+    node_t* tail;
+};
+
 #define CHECK_MALLOC_NODE(output) if(malloc_node(output) != 0) return -1;
 
 int malloc_node(node_t** node)
@@ -11,6 +22,18 @@ int malloc_node(node_t** node)
     
     (*node)->next = NULL;
     return 0;
+}
+
+void* node_get_value(node_t* node)
+{
+    if(node == NULL) return NULL;
+    return node->value;
+}
+
+node_t* node_get_next(node_t* node)
+{
+    if(node == NULL) return NULL;
+    return node->next;
 }
 
 linked_list_t* ll_create()
@@ -217,7 +240,7 @@ int ll_int_get_max(const linked_list_t* ll)
     return max;
 }
 
-void ll_empty(linked_list_t* ll)
+void ll_empty(linked_list_t* ll, void (*free_func)(void*))
 {
     if(ll == NULL) return;
 
@@ -225,8 +248,17 @@ void ll_empty(linked_list_t* ll)
     {
         void* value;
         ll_remove_last(ll, &value);
-        free(value);
+        if(free_func)
+            free_func(value);
     }
+}
+
+void ll_free(linked_list_t* ll, void (*free_func)(void*))
+{
+    if(ll == NULL) return;
+
+    ll_empty(ll, free_func ? free_func : free);
+    free(ll);
 }
 
 int ll_contains_str(const linked_list_t* ll, char* str)

@@ -24,7 +24,7 @@ int check_memory_capacity(size_t next_alloc_size)
     size_t memory_available;
     GET_VAR_MUTEX(current_used_memory, memory_available, &current_used_memory_mutex);
     size_t total_memory;
-    GET_VAR_MUTEX(loaded_configuration.bytes_storage_available, total_memory, &loaded_configuration_mutex);
+    GET_VAR_MUTEX(config_get_max_server_size(loaded_configuration), total_memory, &loaded_configuration_mutex);
     return (memory_available + next_alloc_size) - total_memory;
 }
 
@@ -50,7 +50,7 @@ void sub_memory_usage(size_t to_add)
 bool_t is_total_memory_enough(size_t amount)
 {
     size_t total_memory;
-    GET_VAR_MUTEX(loaded_configuration.bytes_storage_available, total_memory, &loaded_configuration_mutex);
+    GET_VAR_MUTEX(config_get_max_server_size(loaded_configuration), total_memory, &loaded_configuration_mutex);
 
     return total_memory > amount;
 }
@@ -92,26 +92,26 @@ void find_next_file_by_policy(char** pathname_out, file_stored_t** file_out)
 
 void session_remove_file_opened(client_session_t* s, const char* pathname)
 {
-    node_t* curr = s->files_opened.head;
+    node_t* curr = ll_get_head_node(s->files_opened);
     while(curr != NULL)
     {
-        if(strcmp(curr->value, pathname) == 0)
+        if(strcmp(node_get_value(curr), pathname) == 0)
         {
-            ll_remove_node(&s->files_opened, curr);
+            ll_remove_node(s->files_opened, curr);
             return;
         }
 
-        curr = curr->next;
+        curr = node_get_next(curr);
     }
 }
 
 void on_file_name_removed(void* pathname)
 {
     // rimuovo questa da tutti gli utenti
-    node_t* curr = clients_connected.head;
+    node_t* curr = ll_get_head_node(clients_connected);
     while(curr != NULL)
     {
-        client_session_t* curr_s = curr->value;
+        client_session_t* curr_s = node_get_value(curr);
         session_remove_file_opened(curr_s, pathname);
 
         if(strcmp(pathname, curr_s->prev_file_opened) == 0)
@@ -119,7 +119,7 @@ void on_file_name_removed(void* pathname)
             curr_s->prev_file_opened = NULL;
         }
 
-        curr = curr->next;
+        curr = node_get_next(curr);
     }
 
     free(pathname);
@@ -161,13 +161,13 @@ void cache_make_space_fifo(int fd, size_t needed_space)
 
 bool_t session_contains_file_opened(client_session_t* s, const char* pathname)
 {
-    node_t* curr = s->files_opened.head;
+    node_t* curr = ll_get_head_node(s->files_opened);
     while(curr != NULL)
     {
-        if(strcmp(curr->value, pathname) == 0)
+        if(strcmp(node_get_value(curr), pathname) == 0)
             return TRUE;
 
-        curr = curr->next;
+        curr = node_get_next(curr);
     }
 
     return FALSE;
@@ -175,14 +175,14 @@ bool_t session_contains_file_opened(client_session_t* s, const char* pathname)
 
 client_session_t* get_session(int fd)
 {
-    node_t* curr = clients_connected.head;
+    node_t* curr = ll_get_head_node(clients_connected);
     while(curr != NULL)
     {
-        client_session_t* curr_session = curr->value;
+        client_session_t* curr_session = node_get_value(curr);
         if(curr_session->fd == fd)
             return curr_session;
 
-        curr = curr->next;
+        curr = node_get_next(curr);
     }
 
     return NULL;
@@ -258,7 +258,7 @@ void handle_open_file_req(packet_t* req, pthread_t curr)
         response = create_packet(OP_OK);
         if(session_contains_file_opened(session, pathname) == FALSE)
         {
-            ll_add_tail(&session->files_opened, pathname);
+            ll_add_tail(session->files_opened, pathname);
         }
 
         int pathlen = strnlen(pathname, MAX_PATHNAME_API_LENGTH);

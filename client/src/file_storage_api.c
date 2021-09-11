@@ -50,8 +50,9 @@
 #define DEBUG_OK(req) if(req->header.op == OP_OK) \
                     printf("OK.\n");
 
-#define WAIT_TIMER if(g_params.ms_between_requests > 0) \
-                    msleep(g_params.ms_between_requests)
+#define WAIT_TIMER {}
+//#define WAIT_TIMER if(g_params.ms_between_requests > 0) \
+//                    msleep(g_params.ms_between_requests)
 
 int fd_server;
 
@@ -70,29 +71,6 @@ packet_t* wait_response_from_server(int* error)
     }
 
     return read_packet_from_fd(fd_server, error);
-}
-
-void timespec_to_ns(const struct timespec abstime)
-{
-    int tot = 0;
-    tot = abstime.tv_sec * 1000;
-    tot += abstime.tv_nsec / 1000000;
-
-    return tot;
-}
-
-void msleep(int ms)
-{
-    struct timespec ts;
-    ts.tv_sec = ms / 1000;
-    ts.tv_nsec = (ms % 1000) * 1000000;
-
-    msleep_ts(ts);
-}
-
-void msleep_ts(const struct timespec abstime)
-{
-    nanosleep(&abstime, NULL);
 }
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime)

@@ -4,9 +4,7 @@
 #include <pthread.h>
 #include "linked_list.h"
 
-typedef struct queue {
-    linked_list_t internal_list;
-} queue_t;
+typedef struct queue queue_t;
 
 size_t count_q(queue_t* queue);
 int enqueue(queue_t* queue, void* value);

@@ -29,7 +29,7 @@ typedef int quit_signal_t;
 
 typedef struct client_session {
     int fd;
-    linked_list_t files_opened;
+    linked_list_t* files_opened;
     char* prev_file_opened;
     int prev_flags_file;
 } client_session_t;
@@ -51,20 +51,20 @@ extern size_t current_used_memory;
 
 extern pthread_cond_t clients_connected_cond;
 extern pthread_mutex_t clients_list_mutex;
-extern linked_list_t clients_connected;
+extern linked_list_t* clients_connected;
 
 extern pthread_mutex_t clients_set_mutex;
 extern fd_set clients_connected_set;
 
 extern pthread_cond_t request_received_cond;
 extern pthread_mutex_t requests_queue_mutex;
-extern queue_t requests_queue;
+extern queue_t* requests_queue;
 
 extern pthread_mutex_t quit_signal_mutex;
 extern quit_signal_t quit_signal;
 
 extern pthread_mutex_t loaded_configuration_mutex;
-extern configuration_params loaded_configuration;
+extern configuration_params_t* loaded_configuration;
 extern int server_socket_id;
 
 extern pthread_mutex_t server_log_mutex;
@@ -75,10 +75,10 @@ extern int (*server_policy)(file_stored_t* f1, file_stored_t* f2);
 void free_keys_ht(void* key);
 void free_data_ht(void* key);
 
+
 quit_signal_t get_quit_signal();
 void set_quit_signal(quit_signal_t value);
-int load_config_server();
-int init_server();
+int init_server(const configuration_params_t* config);
 int start_server();
 
 #endif

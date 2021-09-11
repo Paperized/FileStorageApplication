@@ -2,6 +2,10 @@
 #include <string.h>
 #include "queue.h"
 
+struct queue {
+    linked_list_t* internal_list;
+};
+
 #define CHECK_QUEUE_PARAM(queue) if(queue == NULL) return -1
 #define CHECK_QUEUE_PARAM2(queue) if(queue == NULL) return NULL
 
@@ -10,14 +14,14 @@ size_t count_q(queue_t* queue)
     if(queue == NULL)
         return 0;
 
-    return ll_count(&queue->internal_list);
+    return ll_count(queue->internal_list);
 }
 
 int enqueue(queue_t* queue, void* value)
 {
     CHECK_QUEUE_PARAM(queue);
 
-    return ll_add_head(&queue->internal_list, value);
+    return ll_add_head(queue->internal_list, value);
 }
 
 void* dequeue(queue_t* queue)
@@ -27,7 +31,7 @@ void* dequeue(queue_t* queue)
         return NULL; /* random value (?), this function shouldnt be called without checking its count */
     
     void* res;
-    ll_remove_last(&queue->internal_list, &res);
+    ll_remove_last(queue->internal_list, &res);
     return res;
 }
 
@@ -35,11 +39,11 @@ void empty_q(queue_t* queue)
 {
     if(queue == NULL) return;
 
-    linked_list_t* ll = &queue->internal_list;
-    while(ll->count != 0)
+    linked_list_t* ll = queue->internal_list;
+    while(ll_count(ll) != 0)
     {
         void* data;
-        ll_remove_last(&queue->internal_list, &data);
+        ll_remove_last(queue->internal_list, &data);
         free(data);
     }
 }

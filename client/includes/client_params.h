@@ -20,10 +20,10 @@ typedef struct client_params {
     int num_file_readed;
     char* dirname_readed_files;
 
-    linked_list_t dirname_file_sendable;
-    linked_list_t file_list_sendable;
-    linked_list_t file_list_readable;
-    linked_list_t file_list_removable;
+    linked_list_t* dirname_file_sendable;
+    linked_list_t* file_list_sendable;
+    linked_list_t* file_list_readable;
+    linked_list_t* file_list_removable;
 
     int ms_between_requests;
     bool_t print_operations;

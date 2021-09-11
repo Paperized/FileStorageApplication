@@ -17,11 +17,10 @@ void init_client_params(client_params_t* params)
 
     params->num_file_readed = 0;
 
-    linked_list_t empty_ll = INIT_EMPTY_LL;
-    params->file_list_sendable = empty_ll;
-    params->file_list_removable = empty_ll;
-    params->file_list_readable = empty_ll;
-    params->dirname_file_sendable = empty_ll;
+    params->file_list_sendable = ll_create();
+    params->file_list_removable = ll_create();
+    params->file_list_readable = ll_create();
+    params->dirname_file_sendable = ll_create();
 
     params->dirname_readed_files = NULL;
 
@@ -31,38 +30,50 @@ void init_client_params(client_params_t* params)
     params->print_operations = FALSE;
 }
 
+static void free_pair(void* ptr)
+{
+    string_int_pair_t* pair = ptr;
+    free(pair->str_value);
+    free(pair);
+}
+
 void free_client_params(client_params_t* params)
 {
-    while(ll_count(&params->file_list_sendable) > 0)
+    ll_free(params->file_list_sendable, free);
+    ll_free(params->file_list_readable, free);
+    ll_free(params->file_list_removable, free);
+    ll_free(params->dirname_file_sendable, free_pair);
+    free(params->dirname_readed_files);
+
+    /*
+    while(ll_count(params->file_list_sendable) > 0)
     {
         char* str;
         ll_remove_last(&params->file_list_sendable, (void**)&str);
         free(str);
     }
 
-    while(ll_count(&params->file_list_readable) > 0)
+    while(ll_count(params->file_list_readable) > 0)
     {
         char* str;
         ll_remove_last(&params->file_list_readable, (void**)&str);
         free(str);
     }
 
-    while(ll_count(&params->file_list_removable) > 0)
+    while(ll_count(params->file_list_removable) > 0)
     {
         char* str;
-        ll_remove_last(&params->file_list_removable, (void**)&str);
+        ll_remove_last(params->file_list_removable, (void**)&str);
         free(str);
     }
 
-    while(ll_count(&params->dirname_file_sendable) > 0)
+    while(ll_count(params->dirname_file_sendable) > 0)
     {
         string_int_pair_t* pair;
         ll_remove_last(&params->dirname_file_sendable, (void**)&pair);
         free(pair->str_value);
         free(pair);
-    }
-
-    free(params->dirname_readed_files);
+    }*/
 }
 
 void tokenize_filenames_into_ll(char* str, linked_list_t* ll)
@@ -135,13 +146,13 @@ int read_args_client_params(int argc, char** argv, client_params_t* params)
             strncpy(params->server_socket_name, optarg, MAX_PATHNAME_API_LENGTH);
             break;
         case 'w':
-            tokenize_dirname_sendable_into_ll(optarg, &params->dirname_file_sendable);
+            tokenize_dirname_sendable_into_ll(optarg, params->dirname_file_sendable);
             break;
         case 'W':
-            tokenize_filenames_into_ll(optarg, &params->file_list_sendable);
+            tokenize_filenames_into_ll(optarg, params->file_list_sendable);
             break;
         case 'r':
-            tokenize_filenames_into_ll(optarg, &params->file_list_readable);
+            tokenize_filenames_into_ll(optarg, params->file_list_readable);
             break;
         case 'R':
             BREAK_ON_NULL(optarg);
@@ -167,7 +178,7 @@ int read_args_client_params(int argc, char** argv, client_params_t* params)
             params->ms_between_requests = atoi(n);
             break;
         case 'c':
-            tokenize_filenames_into_ll(optarg, &params->file_list_removable);
+            tokenize_filenames_into_ll(optarg, params->file_list_removable);
             break;
         case 'p':
             params->print_operations = TRUE;
@@ -198,16 +209,16 @@ void print_params(client_params_t* params)
     printf("-p Print operation: %s.\n", params->print_operations ? "TRUE" : "FALSE");
     printf("-f Socket file path: %s.\n", params->server_socket_name == NULL ? "NULL" : params->server_socket_name);
     printf("-w Directory sendable: ");
-    if(ll_count(&params->dirname_file_sendable) == 0)
+    if(ll_count(params->dirname_file_sendable) == 0)
         printf("NONE.\n");
     else
     {
-        node_t* curr = ll_get_head_node(&params->dirname_file_sendable);
+        node_t* curr = ll_get_head_node(params->dirname_file_sendable);
         while(curr != NULL)
         {
-            string_int_pair_t* dir = curr->value;
+            string_int_pair_t* dir = node_get_value(curr);
             printf("%s[,n=%d]", dir->str_value, dir->int_value);
-            curr = curr->next;
+            curr = node_get_next(curr);
 
             if(curr != NULL)
                 printf(", ");
@@ -217,16 +228,16 @@ void print_params(client_params_t* params)
     }
 
     printf("-W Filenames sendable: ");
-    if(ll_count(&params->file_list_sendable) == 0)
+    if(ll_count(params->file_list_sendable) == 0)
         printf("NONE.\n");
     else
     {
-        node_t* curr = ll_get_head_node(&params->file_list_sendable);
+        node_t* curr = ll_get_head_node(params->file_list_sendable);
         while(curr != NULL)
         {
-            char* filename = curr->value;
+            char* filename = node_get_value(curr);
             printf("%s", filename);
-            curr = curr->next;
+            curr = node_get_next(curr);
 
             if(curr != NULL)
                 printf(", ");
@@ -236,16 +247,16 @@ void print_params(client_params_t* params)
     }
 
     printf("-r Filenames readable: ");
-    if(ll_count(&params->file_list_readable) == 0)
+    if(ll_count(params->file_list_readable) == 0)
         printf("NONE.\n");
     else
     {
-        node_t* curr = ll_get_head_node(&params->file_list_readable);
+        node_t* curr = ll_get_head_node(params->file_list_readable);
         while(curr != NULL)
         {
-            char* filename = curr->value;
+            char* filename = node_get_value(curr);
             printf("%s", filename);
-            curr = curr->next;
+            curr = node_get_next(curr);
 
             if(curr != NULL)
                 printf(", ");
@@ -261,16 +272,16 @@ void print_params(client_params_t* params)
     printf("-t Time between operation completed (in milliseconds): %d.\n", params->ms_between_requests);
 
     printf("-c Filenames removable: ");
-    if(ll_count(&params->file_list_removable) == 0)
+    if(ll_count(params->file_list_removable) == 0)
         printf("NONE.\n");
     else
     {
-        node_t* curr = ll_get_head_node(&params->file_list_removable);
+        node_t* curr = ll_get_head_node(params->file_list_removable);
         while(curr != NULL)
         {
-            char* filename = curr->value;
+            char* filename = node_get_value(curr);
             printf("%s", filename);
-            curr = curr->next;
+            curr = node_get_next(curr);
 
             if(curr != NULL)
                 printf(", ");
