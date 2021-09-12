@@ -70,7 +70,7 @@ packet_t* wait_response_from_server(int* error)
         return NULL;
     }
 
-    return read_packet_from_fd(fd_server, error);
+    return readn(fd_server, error);
 }
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime)
@@ -100,7 +100,7 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 
 int closeConnection(const char* sockname)
 {
-    packet_t* of_packet = create_packet(OP_CLOSE_CONN);
+    packet_t* of_packet = create_packet(OP_CLOSE_CONN, 0);
 
     int p_result = send_packet_to_fd(fd_server, of_packet);
     if(p_result == -1)
@@ -133,7 +133,7 @@ int closeConnection(const char* sockname)
 
 int openFile(const char* pathname, int flags)
 {
-    packet_t* of_packet = create_packet(OP_OPEN_FILE);
+    packet_t* of_packet = create_packet(OP_OPEN_FILE, 0);
     int error;
     error = write_data(of_packet, &flags, sizeof(int));
     CHECK_WRITE_PACKET(error);
@@ -171,7 +171,7 @@ int openFile(const char* pathname, int flags)
 
 int readFile(const char* pathname, void** buf, size_t* size)
 {
-    packet_t* rf_packet = create_packet(OP_READ_FILE);
+    packet_t* rf_packet = create_packet(OP_READ_FILE, 0);
     int error;
     error = write_data_str(rf_packet, pathname);
     CHECK_WRITE_PACKET(error);
@@ -211,7 +211,7 @@ int readFile(const char* pathname, void** buf, size_t* size)
 
 int readNFiles(int N, const char* dirname)
 {
-    packet_t* rf_packet = create_packet(OP_READN_FILES);
+    packet_t* rf_packet = create_packet(OP_READN_FILES, sizeof(int));
     int error;
     error = write_data(rf_packet, &N, sizeof(int));
     CHECK_WRITE_PACKET(error);
@@ -243,7 +243,7 @@ int readNFiles(int N, const char* dirname)
 
 int writeFile(const char* pathname, const char* dirname)
 {
-    packet_t* rf_packet = create_packet(OP_WRITE_FILE);
+    packet_t* rf_packet = create_packet(OP_WRITE_FILE, 0);
     int error;
     error = write_data_str(rf_packet, pathname);
     CHECK_WRITE_PACKET(error);
@@ -275,7 +275,7 @@ int writeFile(const char* pathname, const char* dirname)
 
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname)
 {
-    packet_t* rf_packet = create_packet(OP_APPEND_FILE);
+    packet_t* rf_packet = create_packet(OP_APPEND_FILE, sizeof(size_t));
     int error;
     error = write_data(rf_packet, buf, size);
     CHECK_WRITE_PACKET(error);
@@ -307,7 +307,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 
 int closeFile(const char* pathname)
 {
-    packet_t* rf_packet = create_packet(OP_CLOSE_FILE);
+    packet_t* rf_packet = create_packet(OP_CLOSE_FILE, 0);
     int error;
     error = write_data_str(rf_packet, pathname);
     CHECK_WRITE_PACKET(error);
@@ -339,7 +339,7 @@ int closeFile(const char* pathname)
 
 int removeFile(const char* pathname)
 {
-    packet_t* rf_packet = create_packet(OP_REMOVE_FILE);
+    packet_t* rf_packet = create_packet(OP_REMOVE_FILE, 0);
     int error;
     error = write_data_str(rf_packet, pathname); // set a constant later 
     CHECK_WRITE_PACKET(error);

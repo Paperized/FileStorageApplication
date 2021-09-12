@@ -4,6 +4,17 @@
         "client_params.h": "c",
         "file_storage_api.h": "c",
         "pthread.h": "c",
-        "handle_client.h": "c"
+        "handle_client.h": "c",
+        "optional": "cpp",
+        "istream": "cpp",
+        "ostream": "cpp",
+        "system_error": "cpp",
+        "array": "cpp",
+        "functional": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "string_view": "c",
+        "initializer_list": "c"
     }
 }

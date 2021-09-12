@@ -156,7 +156,7 @@ void* handle_client_requests(void* data)
 
     printf("Running worker thread\n");
     quit_signal_t quit_signal;
-    while((quit_signal = get_quit_signal()) == S_NONE)
+    while((quit_signal = get_quit_signal()) != S_FAST)
     {
         LOCK_MUTEX(&requests_queue_mutex);
         while(count_q(requests_queue) == 0)
@@ -185,35 +185,36 @@ void* handle_client_requests(void* data)
 
         printf("[W/%lu] Handling client with id: %d.\n", curr, request->header.fd_sender);
 
+        int res;
         // Handle the message
         switch(request->header.op)
         {
             case OP_OPEN_FILE:
-                handle_open_file_req(request, curr);
+                res = handle_open_file_req(request, curr);
                 break;
 
             case OP_REMOVE_FILE:
-                handle_remove_file_req(request, curr);
+                res = handle_remove_file_req(request, curr);
                 break;
 
             case OP_WRITE_FILE:
-                handle_write_file_req(request, curr);
+                res = handle_write_file_req(request, curr);
                 break;
 
             case OP_APPEND_FILE:
-                handle_append_file_req(request, curr);
+                res = handle_append_file_req(request, curr);
                 break;
             
             case OP_READ_FILE:
-                handle_read_file_req(request, curr);
+                res = handle_read_file_req(request, curr);
                 break;
 
             case OP_READN_FILES:
-                handle_nread_files_req(request, curr);
+                res = handle_nread_files_req(request, curr);
                 break;
 
             case OP_CLOSE_FILE:
-                handle_close_file_req(request, curr);
+                res = handle_close_file_req(request, curr);
                 break;
 
             default:
@@ -221,7 +222,8 @@ void* handle_client_requests(void* data)
                 break;
         }
 
-        // test sleep
+        // IF RES == -1 SEND BACK AN ERROR MESSAGE WITH ERROR TAKEN FROM ERRNO VAR
+        //HANDLE_ERROR(req)
 
         destroy_packet(request);
         printf("[W/%lu] Finished handling.\n", curr);
@@ -404,7 +406,6 @@ void* handle_clients_packets()
         LOCK_MUTEX(&clients_list_mutex);
         node_t* curr_client = ll_get_head_node(clients_connected);
 
-        int error;
         while(curr_client != NULL)
         {
             client_session_t* curr_session = node_get_value(curr_client);
@@ -412,9 +413,9 @@ void* handle_clients_packets()
             if(FD_ISSET(curr_session->fd, &current_clients))
             {
                 printf("reading packet %d.\n", curr_session->fd);
-                packet_t* req = read_packet_from_fd(curr_session->fd, &error);
+                packet_t* req = read_packet_from_fd(curr_session->fd);
 
-                if(error == 0)
+                if(req)
                 {
                     if(req->header.op == OP_CLOSE_CONN)
                     {

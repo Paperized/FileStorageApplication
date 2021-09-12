@@ -1,5 +1,6 @@
 #include <string.h>
 #include "linked_list.h"
+#include "utils.h"
 
 struct node {
     void* value;
@@ -12,11 +13,9 @@ struct linked_list {
     node_t* tail;
 };
 
-#define CHECK_MALLOC_NODE(output) if(malloc_node(output) != 0) return -1;
-
 int malloc_node(node_t** node)
 {
-    *node = malloc(sizeof(node_t));
+    CHECK_FOR_FATAL(*node, malloc(sizeof(node_t)), errno);
     if(node == NULL)
         return -1;
     
@@ -38,7 +37,8 @@ node_t* node_get_next(node_t* node)
 
 linked_list_t* ll_create()
 {
-    linked_list_t* new_list = malloc(sizeof(linked_list_t));
+    linked_list_t* new_list;
+    CHECK_FOR_FATAL(new_list, malloc(sizeof(linked_list_t)), errno);
     memset(new_list, 0, sizeof(linked_list_t));
     return new_list;
 }
@@ -51,7 +51,7 @@ size_t ll_count(const linked_list_t* ll)
 int ll_add_head(linked_list_t* ll, void* value)
 {
     node_t* new_item = NULL;
-    CHECK_MALLOC_NODE(&new_item);
+    malloc_node(&new_item);
 
     new_item->value = value;
     new_item->next = ll->head;
@@ -67,7 +67,7 @@ int ll_add_head(linked_list_t* ll, void* value)
 int ll_add_tail(linked_list_t* ll, void* value)
 {
     node_t* new_item = NULL;
-    CHECK_MALLOC_NODE(&new_item);
+    malloc_node(&new_item);
 
     new_item->value = value;
     if(ll->count == 0)

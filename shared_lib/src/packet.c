@@ -5,128 +5,90 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "server_api_utils.h"
+#include "utils.h"
 
-#define CHECK_PACKET2(p) if(p == NULL) return 0
+#define CHECK_PACKET2(p) if(p == NULL) return -1
 #define CHECK_PACKET(p) if(p == NULL) return
 
-#define DWRITE_BYTES_TO_FD(fd, buf, size, res) res = write_n_bytes_to_fd(fd, buf, size); \
-                                                if(res != size) \
-                                                    printf("[Warning]: DWRITE_BYTES_TO_FD did write %d bytes to %lu.\n", res, size);
+#define CHECK_READ_BYTES(bytes_read, fd, buf, size, ...) byte_read = readn(fd, buf, size); \
+                                                    if(byte_read == -1) \
+                                                    { \
+                                                        PRINT(ERROR, __VA_ARGS__); \
+                                                        return NULL; \
+                                                    } \
+                                                    if(byte_read == 0) \
+                                                    { \
+                                                        packet_t* closed = create_packet(OP_CLOSE_CONN, 0); \
+                                                        closed->header.fd_sender = fd; \
+                                                        return closed; \
+                                                    } \
 
-void* read_n_bytes_from_fd(int fd, ssize_t size, int* error)
+/**
+ * @brief Reads up to given bytes from given descriptor, saves data to given pre-allocated buffer.
+ * @returns read size on success, -1 on failure.
+ * @exception The function may fail and set "errno" for any of the errors specified for the routine "read".
+*/
+static inline int readn(long fd, void* buf, size_t size)
 {
-    ssize_t curr_bytes_read = 0;
-    char* buf = malloc(size);
-
-    /* NULL means connection closed by the other host */
-    int n_readed = read(fd, buf + curr_bytes_read, size - curr_bytes_read);
-    if(n_readed < 0)
-    {
-        free(buf);
-        *error = -1;
-        return NULL;
-    }
-    else if(n_readed == 0)
-    {
-        free(buf);
-        *error = 0;
-        return NULL;
-    }
-    else
-        curr_bytes_read = n_readed;
-
-    while(curr_bytes_read != size)
-    {
-        int n_readed = read(fd, buf + curr_bytes_read, size - curr_bytes_read);
-        if(n_readed == -1)
-        {
-            free(buf);
-            *error = -1;
-            return NULL;
-        }
-
-        curr_bytes_read += n_readed;
-    }
-
-    *error = 0;
-    return buf;
+	size_t left = size;
+	int r;
+	char* bufptr = (char*) buf;
+	while (left > 0)
+	{
+		if ((r = read((int) fd, bufptr, left)) == -1)
+		{
+			if (errno == EINTR) continue;
+			return -1;
+		}
+		if (r == 0) return 0; // EOF
+		left -= r;
+		bufptr += r;
+	}
+	return size;
 }
 
-int write_n_bytes_to_fd(int fd, char* buf, ssize_t size)
+/**
+ * @brief Writes buffer up to given size to given descriptor.
+ * @returns 1 on success, -1 on failure.
+ * @exception The function may fail and set "errno" for any of the errors specified for routine "write".
+*/
+static inline int writen(long fd, void* buf, size_t size)
 {
-    ssize_t curr_bytes_wrote = 0;
-
-    /* NULL means connection closed by the other host */
-    int n_wrote = write(fd, buf + curr_bytes_wrote, size - curr_bytes_wrote);
-    if(n_wrote < 0)
-        return -1;
-    else if(n_wrote == 0)
-        return 0;
-    else
-        curr_bytes_wrote = n_wrote;
-
-    while(curr_bytes_wrote != size)
-    {
-        int n_wrote = write(fd, buf + curr_bytes_wrote, size - curr_bytes_wrote);
-        if(n_wrote != -1)
-            return -1;
-        
-        curr_bytes_wrote += n_wrote;
-    }
-
-    return curr_bytes_wrote;
+	size_t left = size;
+	int r;
+	char* bufptr = (char*) buf;
+	while (left > 0)
+	{
+		if ((r = write((int) fd, bufptr, left)) == -1)
+		{
+			if (errno == EINTR) continue;
+			return -1;
+		}
+		if (r == 0) return 0;
+		left -= r;
+		bufptr += r;
+	}
+	return 1;
 }
 
 // Null connessione chiusa, != NULL packet ricevuto
-packet_t* read_packet_from_fd(int fd, int* error)
+packet_t* read_packet_from_fd(int fd)
 {
-    packet_op* op = read_n_bytes_from_fd(fd, sizeof(packet_op), error);
-    if(*error == -1)
-    {
-        printf("Error reading op packet.\n");
-        return NULL;
-    }
+    packet_op op;
+    int byte_read;
+    CHECK_READ_BYTES(byte_read, fd, &op, sizeof(packet_op), "Cannot read packet_op! fd(%d)", fd);
 
-    // connessione chiusa
-    if(op == NULL)
-    {
-        packet_t* closed = create_packet(OP_CLOSE_CONN);
-        closed->header.fd_sender = fd;
-        return closed;
-    }
+    packet_len len;
+    CHECK_READ_BYTES(byte_read, fd, &len, sizeof(packet_len), "Cannot read packet_len! fd(%d)", fd);
 
-    packet_len* len = read_n_bytes_from_fd(fd, sizeof(packet_len), error);
-    if(*error == -1)
-    {
-        free(op);
-        return NULL;
-    }
+    char* content;
+    CHECK_FOR_FATAL(content, malloc(len), errno);
+    CHECK_READ_BYTES(byte_read, fd, content, len, "Cannot read packet_body! fd(%d)", fd);
 
-    char* content = NULL;
-    if(len != NULL)
-    {
-        if(*len > 0)
-            content = read_n_bytes_from_fd(fd, *len, error);
-
-        if(*error == -1)
-        {
-            free(op);
-            free(len);
-            return NULL;
-        }
-    }
-    else
-    {
-        len = malloc(sizeof(packet_len));
-        *len = 0;
-    }
-
-    packet_t* new_packet = create_packet(*op);
+    packet_t* new_packet = create_packet(op, 0);
     new_packet->header.fd_sender = fd;
-    new_packet->header.len = *len;
-    new_packet->body.content = content;
-    free(op);
-    free(len);
+    new_packet->header.len = len;
+    new_packet->content = content;
     return new_packet;
 }
 
@@ -135,16 +97,12 @@ int send_packet_to_fd(int fd, packet_t* p)
 {
     CHECK_PACKET2(p);
 
-    size_t packet_length = sizeof(packet_op) + sizeof(packet_len) + p->header.len;
-    char* buffer = malloc(packet_length);
-    memcpy(buffer, &p->header.op, sizeof(packet_op));
-    memcpy((buffer + 4), &p->header.len, 4);
-    memcpy((buffer + 8), p->body.content, p->header.len);
+    int write_result;
+    CHECK_ERROR_EQ(write_result, writen(fd, &p->header.op, sizeof(packet_op)), -1, -1, "Cannot write packet_op! fd(%d)", fd);
+    CHECK_ERROR_EQ(write_result, writen(fd, &p->header.len, sizeof(packet_len)), -1, -1, "Cannot write packet_len! fd(%d)", fd);
+    CHECK_ERROR_EQ(write_result, writen(fd, p->content, p->header.len), -1, -1, "Cannot write packet_content! fd(%d)", fd);
 
-    int res;
-    DWRITE_BYTES_TO_FD(fd, buffer, packet_length, res);
-    free(buffer);
-    return res;
+    return 1;
 }
 
 // destroy the current packet and free its content
@@ -152,121 +110,94 @@ void destroy_packet(packet_t* p)
 {
     CHECK_PACKET(p);
 
-    if(p->body.content)
-        free(p->body.content);
+    if(p->content)
+        free(p->content);
     free(p);
 }
 
 // write a data to a packet based on size and return a status, -1 the packet is null, otherwise it returns the bytes written
 int write_data(packet_t* p, const void* data, size_t size)
 {
-    if(data == NULL)
+    if(!data || !p)
         return -1;
+    if(size == 0)
+        return 1;
 
-    char* current_buffer = p->body.content;
+    char* current_buffer = p->content;
     packet_len buff_size = p->header.len;
+    packet_len free_space = p->capacity - buff_size;
 
-    if(buff_size == 0)
+    if(free_space < size)
     {
-        current_buffer = malloc(size);
-        if(current_buffer == NULL)
+        if(buff_size == 0)
         {
-            return -2;
+            CHECK_FOR_FATAL(current_buffer, malloc(size), errno);
         }
-    }
-    else
-    {
-        current_buffer = realloc(current_buffer, buff_size + size);
-        if(current_buffer == NULL)
+        else
         {
-            return -2;
+            CHECK_FOR_FATAL(current_buffer, realloc(current_buffer, p->capacity + (size - free_space)), errno);
         }
+
+        p->capacity = buff_size + size;
     }
 
     memcpy(current_buffer + buff_size, data, size);
-    p->body.content = current_buffer;
+    p->content = current_buffer;
     p->header.len = buff_size + size;
-    return 0;
+    return 1;
 }
 
 // write a string to a packet and return a status, -1 the packet is null, otherwise it returns the bytes written
 int write_data_str(packet_t* p, const char* str)
 {
-    if(p == NULL)
+    if(!p || !str)
         return -1;
 
     size_t len = strnlen(str, MAX_PATHNAME_API_LENGTH) + 1;
-    int res = write_data(p, str, len);
-    if(res < 0)
-        return res;
-
-    p->body.content[p->header.len - 1] = '\0';
+    int res;
+    CHECK_ERROR_EQ(res, write_data(p, str, len), -1, res, "Cannot write string to packet!");
+    p->content[p->header.len - 1] = '\0';
     return res;
 }
 
 // return a pointer to the data read from the packet based on a size
 // error is set to -1 if req is null, -2 if the size exceed the packet length, -3 if malloc failed due to memory issue
-void* read_data(packet_t* p, size_t size, int* error)
+int read_data(packet_t* p, void* buf, size_t size)
 {
-    if(p == NULL)
+    if(!p || !buf)
     {
-        *error = -1;
-        return NULL;
+        errno = EINVAL;
+        return -1;
     }
+    if(size == 0)
+        return 1;
 
-    char* current_buffer = p->body.content;
+    char* current_buffer = p->content;
     packet_len buff_size = p->header.len;
-    packet_len cursor_index = p->body.cursor_index;
+    packet_len cursor_index = p->cursor_index;
 
     if((cursor_index + size) > buff_size)
     {
-        *error = -2;
-        return NULL;
+        errno = EOVERFLOW;
+        return -1;
     }
 
-    char* readed_data = malloc(size);
-    if(readed_data == NULL)
-    {
-        *error = -3;
-        return NULL;
-    }
-
-    memcpy(readed_data, (current_buffer + cursor_index), size);
-    p->body.cursor_index = cursor_index + size;
-    *error = 0;
-    return readed_data;
+    memcpy(buf, (current_buffer + cursor_index), size);
+    p->cursor_index = cursor_index + size;
+    return 1;
 }
 
-// read the entire packet content left and set the bytes read, eventually setting error to -1 if the packet is NULL
-void* read_until_end(packet_t* p, size_t* size_read, int* error)
+int read_data_str(packet_t* p, char* str, size_t input_str_length)
 {
-    if(p == NULL)
+    if(!p || !str)
     {
-        *error = -1;
-        return NULL;
+        errno = EINVAL;
+        return -1;
     }
 
+    char* current_buffer = p->content;
     packet_len buff_size = p->header.len;
-    packet_len cursor_index = p->body.cursor_index;
-
-    void* data = read_data(p, buff_size - cursor_index, error);
-    *size_read = data == NULL ? 0 : buff_size - cursor_index;
-    return data;
-}
-
-// return a pointer to string read from a packet
-// error is set to -1 if req is null, -2 if the size exceed the packet length, -3 if malloc failed due to memory issue, -4 if the string did not terminate
-char* read_data_str(packet_t* p, int* error)
-{
-    if(p == NULL)
-    {
-        *error = -1;
-        return NULL;
-    }
-
-    char* current_buffer = p->body.content;
-    packet_len buff_size = p->header.len;
-    packet_len cursor_index = p->body.cursor_index;
+    packet_len cursor_index = p->cursor_index;
 
     size_t current_str_length = 0;
     size_t next_curs_index;
@@ -276,30 +207,53 @@ char* read_data_str(packet_t* p, int* error)
     // null char
     current_str_length += 1;
     next_curs_index += 1;
-    if(next_curs_index > buff_size)
+    if(next_curs_index > buff_size || *(current_buffer + next_curs_index) != '\0')
     {
-        *error = -2;
-        return NULL;
-    }
-
-    if(*(current_buffer + next_curs_index) != '\0')
-    {
-        *error = -4;
-        return NULL;
+        errno = EOVERFLOW;
+        return -1;
     }
 
     size_t needed_bytes = current_str_length * sizeof(char);
-    char* readed_str = malloc(needed_bytes);
-    if(readed_str == NULL)
+    memcpy(str, (current_buffer + cursor_index), MIN(input_str_length, needed_bytes));
+    p->cursor_index = cursor_index + current_str_length;
+    return 1;
+}
+
+// return a pointer to string read from a packet
+// error is set to -1 if req is null, -2 if the size exceed the packet length, -3 if malloc failed due to memory issue, -4 if the string did not terminate
+int read_data_str_alloc(packet_t* p, char** str)
+{
+    if(!p || !str)
     {
-        *error = -3;
-        return NULL;
+        errno = EINVAL;
+        *str = NULL;
+        return -1;
     }
 
-    memcpy(readed_str, (current_buffer + cursor_index), needed_bytes);
-    p->body.cursor_index = cursor_index + needed_bytes;
-    *error = 0;
-    return readed_str;
+    char* current_buffer = p->content;
+    packet_len buff_size = p->header.len;
+    packet_len cursor_index = p->cursor_index;
+
+    size_t current_str_length = 0;
+    size_t next_curs_index;
+    while((next_curs_index = cursor_index + current_str_length) <= buff_size && *(current_buffer + next_curs_index) != '\0')
+        current_str_length += 1;
+
+    // null char
+    current_str_length += 1;
+    next_curs_index += 1;
+    if(next_curs_index > buff_size || *(current_buffer + next_curs_index) != '\0')
+    {
+        errno = EOVERFLOW;
+        *str = NULL;
+        return -1;
+    }
+
+    size_t needed_bytes = current_str_length * sizeof(char);
+    CHECK_FOR_FATAL(*str, malloc(needed_bytes), errno);
+    memcpy(*str, (current_buffer + cursor_index), needed_bytes);
+    p->cursor_index = cursor_index + current_str_length;
+    return 1;
 }
 
 int is_packet_valid(packet_t* p)
@@ -323,12 +277,18 @@ int is_packet_valid(packet_t* p)
     return 0;
 }
 
-packet_t* create_packet(packet_op op)
+packet_t* create_packet(packet_op op, ssize_t initial_capacity)
 {
-    packet_t* new_p = malloc(sizeof(packet_t));
+    packet_t* new_p;
+    CHECK_FOR_FATAL(new_p, malloc(sizeof(packet_t)), errno);
     memset(new_p, 0, sizeof(packet_t));
     new_p->header.op = op;
     new_p->header.fd_sender = -1;
+
+    new_p->capacity = initial_capacity;
+    if(initial_capacity > 0) {
+        CHECK_FOR_FATAL(new_p->content, malloc(new_p->capacity), errno);
+    }
 
     return new_p;
 }
@@ -339,6 +299,7 @@ void print_packet(packet_t* p)
 
     printf("Packet op: %ul.\n", p->header.op);
     printf("Packet body length: %ul.\n", p->header.len);
+    printf("Packet body capability: %ul.\n", p->capacity);
     printf("Packet sender: %d.\n", p->header.fd_sender);
-    printf("Packet cursor index: %ul.\n", p->body.cursor_index);
+    printf("Packet cursor index: %ul.\n", p->cursor_index);
 }

@@ -188,24 +188,16 @@ client_session_t* get_session(int fd)
     return NULL;
 }
 
-void handle_open_file_req(packet_t* req, pthread_t curr)
+int handle_open_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_OPEN_FILE request operation.\n", curr);
-    int error_read;
-    int* flags = read_data(req, sizeof(int), &error_read);
-    if(error_read < 0)
-    {
-        printf("Error reading flags [%d].\n", error_read);
-        return;
-    }
-
-    char* pathname = read_data_str(req, &error_read);
-    if(error_read < 0)
-    {
-        printf("Error reading pathname [%d].\n", error_read);
-        free(flags);
-        return;
-    }
+    int read_result;
+    int flags;
+    CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, &flags, sizeof(int)), -1, -1,
+                                 EBADF, "Cannot read flags inside packet! fd(%d)", req->header.fd_sender);
+    char pathname[MAX_PATHNAME_API_LENGTH];
+    CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
+                                 EBADF, "Cannot read pathname inside packet! fd(%d)", req->header.fd_sender);
 
     printf("Pathname %s.\n", pathname);
 
@@ -216,7 +208,7 @@ void handle_open_file_req(packet_t* req, pthread_t curr)
     file_stored_t* file;
     GET_FILE_AND_ACQUIRE1(files_stored, &files_stored_mutex, pathname, file);
 
-    if((*flags) & OP_CREATE)
+    if(flags & OP_CREATE)
     {
         // se esiste il il file error
         if(file != NULL)
@@ -255,7 +247,7 @@ void handle_open_file_req(packet_t* req, pthread_t curr)
     {
         EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_OPENED, req->header.fd_sender, pathname), &server_log_mutex);
 
-        response = create_packet(OP_OK);
+        response = create_packet(OP_OK, 0);
         if(session_contains_file_opened(session, pathname) == FALSE)
         {
             ll_add_tail(session->files_opened, pathname);
@@ -264,13 +256,12 @@ void handle_open_file_req(packet_t* req, pthread_t curr)
         int pathlen = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
         session->prev_file_opened = pathname;
         strncpy(session->prev_file_opened, pathname, pathlen);
-        session->prev_flags_file = *flags;
+        session->prev_flags_file = flags;
     }
     else
     {
-        response = create_packet(OP_ERROR);
+        response = create_packet(OP_ERROR, sizeof(server_errors_t));
         write_data(response, &error, sizeof(server_errors_t));
-        free(pathname);
     }
 
     if(send_packet_to_fd(req->header.fd_sender, response) <= 0)
@@ -279,19 +270,15 @@ void handle_open_file_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
-    free(flags);
 }
 
-void handle_write_file_req(packet_t* req, pthread_t curr)
+int handle_write_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_WRITE_FILE request operation.\n", curr);
-    int error_read;
-    char* pathname = read_data_str(req, &error_read);
-    if(pathname == NULL)
-    {
-        printf("Pathname is empty!.\n");
-        return;
-    }
+    int read_result;
+    char pathname[MAX_PATHNAME_API_LENGTH];
+    CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
+                                 EBADF, "Cannot read pathname inside packet! fd(%d)", req->header.fd_sender);
 
     packet_t* response;
     server_errors_t error = ERR_NONE;
@@ -353,12 +340,12 @@ void handle_write_file_req(packet_t* req, pthread_t curr)
 
     if(error != ERR_NONE)
     {
-        response = create_packet(OP_ERROR);
+        response = create_packet(OP_ERROR, sizeof(server_errors_t));
         write_data(response, &error, sizeof(server_errors_t));
     }
     else
     {
-        response = create_packet(OP_OK);
+        response = create_packet(OP_OK, 0);
     }
 
     if(send_packet_to_fd(req->header.fd_sender, response) <= 0)
@@ -370,16 +357,13 @@ void handle_write_file_req(packet_t* req, pthread_t curr)
     free(pathname);
 }
 
-void handle_append_file_req(packet_t* req, pthread_t curr)
+int handle_append_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_APPEND_FILE request operation.\n", curr);
-    int error_read;
-    char* pathname = read_data_str(req, &error_read);
-    if(pathname == NULL)
-    {
-        printf("Pathname is empty!.\n");
-        return;
-    }
+    int read_result;
+    char pathname[MAX_PATHNAME_API_LENGTH];
+    CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
+                                 EBADF, "Cannot read pathname inside packet! fd(%d)", req->header.fd_sender);
 
     size_t buff_size = 0;
     void* buffer = NULL;
@@ -404,7 +388,8 @@ void handle_append_file_req(packet_t* req, pthread_t curr)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
-        buffer = read_until_end(req, &buff_size, &error_read);
+        CHECK_FOR_FATAL(buffer, malloc(sizeof(req->header.len - req->cursor_index)), errno);
+        read_data(req, buffer, req->header.len - req->cursor_index);
         bool_t enough_totm = is_total_memory_enough(buff_size);
         if(!enough_totm)
         {
@@ -437,12 +422,12 @@ void handle_append_file_req(packet_t* req, pthread_t curr)
     {
         EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_APPEND, req->header.fd_sender, pathname), &server_log_mutex);
 
-        response = create_packet(OP_ERROR);
+        response = create_packet(OP_ERROR, sizeof(server_errors_t));
         write_data(response, &error, sizeof(server_errors_t));
     }
     else
     {
-        response = create_packet(OP_OK);
+        response = create_packet(OP_OK, 0);
     }
 
     if(send_packet_to_fd(req->header.fd_sender, response) <= 0)
@@ -456,16 +441,13 @@ void handle_append_file_req(packet_t* req, pthread_t curr)
     free(pathname);
 }
 
-void handle_read_file_req(packet_t* req, pthread_t curr)
+int handle_read_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_READ_FILE request operation.\n", curr);
-    int error_read;
-    char* pathname = read_data_str(req, &error_read);
-    if(pathname == NULL)
-    {
-        printf("Pathname is empty!.\n");
-        return;
-    }
+    int read_result;
+    char pathname[MAX_PATHNAME_API_LENGTH];
+    CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
+                                 EBADF, "Cannot read pathname inside packet! fd(%d)", req->header.fd_sender);
 
     packet_t* response;
     server_errors_t error = ERR_NONE;
@@ -487,7 +469,7 @@ void handle_read_file_req(packet_t* req, pthread_t curr)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
-        response = create_packet(OP_OK);
+        response = create_packet(OP_OK, curr_file->size);
 
         if(curr_file->size > 0)
         {
@@ -501,7 +483,7 @@ void handle_read_file_req(packet_t* req, pthread_t curr)
     {
         EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_APPEND, req->header.fd_sender, pathname), &server_log_mutex);
         
-        response = create_packet(OP_ERROR);
+        response = create_packet(OP_ERROR, sizeof(server_errors_t));
         write_data(response, &error, sizeof(server_errors_t));
     }
 
@@ -511,22 +493,19 @@ void handle_read_file_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
-    free(pathname);
 }
 
-void handle_nread_files_req(packet_t* req, pthread_t curr)
+int handle_nread_files_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_NREAD_FILES request operation.\n", curr);
-    int error_read;
-    int *n_to_read = read_data(req, sizeof(int), &error_read);
-    bool_t read_all = *n_to_read <= 0;
-
-    char* dirname = read_data_str(req, &error_read);
-    if(dirname == NULL)
-    {
-        printf("Dirname is empty!.\n");
-        return;
-    }
+    int read_result;
+    int n_to_read;
+    CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, &n_to_read, sizeof(int)), -1, -1,
+                                    EBADF, "Cannot read n_to_read inside packet! fd(%d)", req->header.fd_sender);
+    bool_t read_all = n_to_read <= 0;
+    char dirname[MAX_PATHNAME_API_LENGTH];
+    CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, dirname, MAX_PATHNAME_API_LENGTH), -1, -1,
+                                 EBADF, "Cannot read dirname inside packet! fd(%d)", req->header.fd_sender);
 
     packet_t* response;
     client_session_t* session = get_session(req->header.fd_sender);
@@ -539,7 +518,7 @@ void handle_nread_files_req(packet_t* req, pthread_t curr)
     int total_read = 0;
 
     icl_hash_foreach_mutex(files_stored, i, curr_entry, curr_fname, curr_file, &files_stored_mutex) {
-        if((read_all || *n_to_read > 0) && (curr_fname != NULL && curr_file != NULL))
+        if((read_all || n_to_read > 0) && (curr_fname != NULL && curr_file != NULL))
         {
             LOCK_MUTEX(&curr_file->rw_mutex);
 
@@ -555,15 +534,15 @@ void handle_nread_files_req(packet_t* req, pthread_t curr)
 
             if(res >= 0)
             {
-                *n_to_read -= 1;
+                n_to_read -= 1;
                 total_read += 1;
             }
         }
     }
     icl_hash_foreach_mutex_end(&files_stored_mutex);
 
-    EXEC_WITH_MUTEX(add_logging_entry_int(server_log, FILE_NREAD, session->fd, *n_to_read), &server_log_mutex);
-    response = create_packet(OP_OK);
+    EXEC_WITH_MUTEX(add_logging_entry_int(server_log, FILE_NREAD, session->fd, n_to_read), &server_log_mutex);
+    response = create_packet(OP_OK, sizeof(int));
     write_data(response, &total_read, sizeof(int));
 
     if(send_packet_to_fd(req->header.fd_sender, response) <= 0)
@@ -572,20 +551,15 @@ void handle_nread_files_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
-    free(dirname);
-    free(n_to_read);
 }
 
-void handle_remove_file_req(packet_t* req, pthread_t curr)
+int handle_remove_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_REMOVE_FILE request operation.\n", curr);
-    int error_read;
-    char* pathname = read_data_str(req, &error_read);
-    if(pathname == NULL)
-    {
-        printf("Pathname is empty!.\n");
-        return;
-    }
+    int read_result;
+    char pathname[MAX_PATHNAME_API_LENGTH];
+    CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
+                                 EBADF, "Cannot read pathname inside packet! fd(%d)", req->header.fd_sender);
 
     packet_t* response;
     server_errors_t error = ERR_NONE;
@@ -616,12 +590,12 @@ void handle_remove_file_req(packet_t* req, pthread_t curr)
     if(error != ERR_NONE)
     {
         EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_REMOVED, session->fd, pathname), &server_log_mutex);
-        response = create_packet(OP_ERROR);
+        response = create_packet(OP_ERROR, sizeof(server_errors_t));
         write_data(response, &error, sizeof(server_errors_t));
     }
     else
     {
-        response = create_packet(OP_OK);
+        response = create_packet(OP_OK, 0);
     }
 
     if(send_packet_to_fd(req->header.fd_sender, response) <= 0)
@@ -630,19 +604,15 @@ void handle_remove_file_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
-    free(pathname);
 }
 
-void handle_close_file_req(packet_t* req, pthread_t curr)
+int handle_close_file_req(packet_t* req, pthread_t curr)
 {
     printf("[W/%lu] OP_CLOSE_FILE request operation.\n", curr);
-    int error_read;
-    char* pathname = read_data_str(req, &error_read);
-    if(pathname == NULL)
-    {
-        printf("Pathname is empty!.\n");
-        return;
-    }
+    int read_result;
+    char pathname[MAX_PATHNAME_API_LENGTH];
+    CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
+                                 EBADF, "Cannot read pathname inside packet! fd(%d)", req->header.fd_sender);
 
     packet_t* response;
     server_errors_t error = ERR_NONE;
@@ -670,12 +640,12 @@ void handle_close_file_req(packet_t* req, pthread_t curr)
     if(error != ERR_NONE)
     {
         EXEC_WITH_MUTEX(add_logging_entry_str(server_log, FILE_CLOSED, session->fd, pathname), &server_log_mutex);
-        response = create_packet(OP_ERROR);
+        response = create_packet(OP_ERROR, sizeof(server_errors_t));
         write_data(response, &error, sizeof(server_errors_t));
     }
     else
     {
-        response = create_packet(OP_OK);
+        response = create_packet(OP_OK, 0);
     }
 
     if(send_packet_to_fd(req->header.fd_sender, response) <= 0)
@@ -684,5 +654,4 @@ void handle_close_file_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
-    free(pathname);
 }

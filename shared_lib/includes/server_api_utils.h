@@ -27,7 +27,8 @@ typedef enum server_errors {
     ERR_FILE_ALREADY_EXISTS = EEXIST,
     ERR_PATH_NOT_EXISTS = ENOENT,
     ERR_FILE_NOT_OPEN = EACCES,
-    ERR_FILE_TOO_BIG
+    ERR_FILE_TOO_BIG = EFBIG,
+    ERR_NO_MEMORY = ENOMEM
 } server_errors_t;
 
 const char* get_error_str(server_errors_t err);
