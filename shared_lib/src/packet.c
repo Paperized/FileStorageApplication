@@ -13,7 +13,7 @@
 #define CHECK_READ_BYTES(bytes_read, fd, buf, size, ...) byte_read = readn(fd, buf, size); \
                                                     if(byte_read == -1) \
                                                     { \
-                                                        PRINT(ERROR, __VA_ARGS__); \
+                                                        PRINT_ERROR(errno, __VA_ARGS__); \
                                                         return NULL; \
                                                     } \
                                                     if(byte_read == 0) \
@@ -82,7 +82,7 @@ packet_t* read_packet_from_fd(int fd)
     CHECK_READ_BYTES(byte_read, fd, &len, sizeof(packet_len), "Cannot read packet_len! fd(%d)", fd);
 
     char* content;
-    CHECK_FOR_FATAL(content, malloc(len), errno);
+    CHECK_FOR_FATAL(content, malloc(len));
     CHECK_READ_BYTES(byte_read, fd, content, len, "Cannot read packet_body! fd(%d)", fd);
 
     packet_t* new_packet = create_packet(op, 0);
@@ -131,11 +131,11 @@ int write_data(packet_t* p, const void* data, size_t size)
     {
         if(buff_size == 0)
         {
-            CHECK_FOR_FATAL(current_buffer, malloc(size), errno);
+            CHECK_FOR_FATAL(current_buffer, malloc(size));
         }
         else
         {
-            CHECK_FOR_FATAL(current_buffer, realloc(current_buffer, p->capacity + (size - free_space)), errno);
+            CHECK_FOR_FATAL(current_buffer, realloc(current_buffer, p->capacity + (size - free_space)));
         }
 
         p->capacity = buff_size + size;
@@ -148,12 +148,12 @@ int write_data(packet_t* p, const void* data, size_t size)
 }
 
 // write a string to a packet and return a status, -1 the packet is null, otherwise it returns the bytes written
-int write_data_str(packet_t* p, const char* str)
+int write_data_str(packet_t* p, const char* str, size_t len)
 {
     if(!p || !str)
         return -1;
 
-    size_t len = strnlen(str, MAX_PATHNAME_API_LENGTH) + 1;
+    len += 1;
     int res;
     CHECK_ERROR_EQ(res, write_data(p, str, len), -1, res, "Cannot write string to packet!");
     p->content[p->header.len - 1] = '\0';
@@ -250,7 +250,7 @@ int read_data_str_alloc(packet_t* p, char** str)
     }
 
     size_t needed_bytes = current_str_length * sizeof(char);
-    CHECK_FOR_FATAL(*str, malloc(needed_bytes), errno);
+    CHECK_FOR_FATAL(*str, malloc(needed_bytes));
     memcpy(*str, (current_buffer + cursor_index), needed_bytes);
     p->cursor_index = cursor_index + current_str_length;
     return 1;
@@ -280,14 +280,14 @@ int is_packet_valid(packet_t* p)
 packet_t* create_packet(packet_op op, ssize_t initial_capacity)
 {
     packet_t* new_p;
-    CHECK_FOR_FATAL(new_p, malloc(sizeof(packet_t)), errno);
+    CHECK_FOR_FATAL(new_p, malloc(sizeof(packet_t)));
     memset(new_p, 0, sizeof(packet_t));
     new_p->header.op = op;
     new_p->header.fd_sender = -1;
 
     new_p->capacity = initial_capacity;
     if(initial_capacity > 0) {
-        CHECK_FOR_FATAL(new_p->content, malloc(new_p->capacity), errno);
+        CHECK_FOR_FATAL(new_p->content, malloc(new_p->capacity));
     }
 
     return new_p;
@@ -302,4 +302,11 @@ void print_packet(packet_t* p)
     printf("Packet body capability: %ul.\n", p->capacity);
     printf("Packet sender: %d.\n", p->header.fd_sender);
     printf("Packet cursor index: %ul.\n", p->cursor_index);
+}
+
+int packet_get_remaining_byte_count(packet_t* p)
+{
+    if(!p) return 0;
+
+    return p->header.len - p->cursor_index;
 }

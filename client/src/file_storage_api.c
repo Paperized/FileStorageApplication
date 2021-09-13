@@ -11,48 +11,61 @@
 #include "packet.h"
 
 #define CLEANUP_PACKETS(sent, received) destroy_packet(sent); \
-                                        destroy_packet(received);
+                                        destroy_packet(received)
 
-#define CHECK_WRITE_PACKET(res) if(res == -1) { \
-                                    printf("You cannot write in a NULL packet.\n"); \
-                                    return -1; \
-                                } \
-                                else if(res == -2) { \
-                                    printf("Malloc or realloc failed during write packet. No memory available.\n"); \
-                                    return -1; \
-                                }
+#define CHECK_WRITE_PACKET(pk, write_res) if(write_res == -1) { \
+                                                destroy_packet(pk); \
+                                                PRINT_WARNING(errno, "Cannot write data inside packet!"); \
+                                                return -1; \
+                                            }
 
-#define CHECK_READ_PACKET(res) if(res == -1) { \
-                                    printf("You cannot read in a NULL packet.\n"); \
-                                    return -1; \
-                                } \
-                                else if(res == -2) { \
-                                    printf("Malloc or realloc failed during read packet. No memory available.\n"); \
-                                    return -1; \
-                                } \
-                                else if(res == -3) { \
-                                    printf("Your cursor reached out of bound in the packet during a read.\n"); \
-                                    return -1; \
-                                }
+#define CHECK_READ_PACKET(pk, read_res, req) if(read_res == -1) { \
+                                                CLEANUP_PACKETS(pk, req); \
+                                                PRINT_WARNING(errno, "Cannot read data inside packet!"); \
+                                                return -1; \
+                                            }
 
-#define RET_ON_ERROR(req, res, error) if(res->header.op == OP_ERROR) \
+#define WRITE_PACKET_STR(pk, write_res, str, len) write_res = write_data_str(pk, str, len); \
+                                            CHECK_WRITE_PACKET(pk, write_res)
+
+#define WRITE_PACKET(pk, write_res, data_ptr, size) write_res = write_data(pk, data_ptr, size); \
+                                            CHECK_WRITE_PACKET(pk, write_res)
+
+#define READ_PACKET_STR(pk, read_res, str, len, req) read_res = read_data_str(pk, data_ptr, len); \
+                                            CHECK_READ_PACKET(pk, read_res, req)
+                                        
+#define READ_PACKET(pk, read_res, data_ptr, size, req) read_res = read_data(pk, data_ptr, size); \
+                                            CHECK_READ_PACKET(pk, read_res, req)
+
+#define RET_ON_ERROR(req, res) if(res->header.op == OP_ERROR) \
                                 { \
-                                    server_open_file_options_t* err = read_data(res, sizeof(server_open_file_options_t), &error); \
-                                    CHECK_READ_PACKET(error); \
-                                    errno = *err; \
-                                    printf("Operation ended with error: %s.\n", get_error_str(*err)); \
-                                    free(err); \
+                                    int read_res; \
+                                    server_open_file_options_t err; \
+                                    READ_PACKET(res, read_res, &err, sizeof(server_open_file_options_t), req); \
                                     CLEANUP_PACKETS(req, res); \
-                                    WAIT_TIMER; \
                                     return -1; \
                                 }
 
 #define DEBUG_OK(req) if(req->header.op == OP_OK) \
-                    printf("OK.\n");
+                        printf("OK.\n");
+
+#define SEND_TO_SERVER(req, error) error = send_packet_to_fd(fd_server, req); \
+                                    if(error == -1) \
+                                    { \
+                                        destroy_packet(req); \
+                                        PRINT_WARNING(error, "Cannot send packet to server!"); \
+                                        return -1; \
+                                    }
+
+#define WAIT_UNTIL_RESPONSE(res, req, error) res = wait_response_from_server(&error); \
+                                        if(error == -1) \
+                                        { \
+                                            destroy_packet(req); \
+                                            PRINT_WARNING(error, "Cannot receive packet from server!"); \
+                                            return -1; \
+                                        }
 
 #define WAIT_TIMER {}
-//#define WAIT_TIMER if(g_params.ms_between_requests > 0) \
-//                    msleep(g_params.ms_between_requests)
 
 int fd_server;
 
@@ -70,7 +83,7 @@ packet_t* wait_response_from_server(int* error)
         return NULL;
     }
 
-    return readn(fd_server, error);
+    return read_packet_from_fd(fd_server);
 }
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime)
@@ -102,269 +115,156 @@ int closeConnection(const char* sockname)
 {
     packet_t* of_packet = create_packet(OP_CLOSE_CONN, 0);
 
-    int p_result = send_packet_to_fd(fd_server, of_packet);
-    if(p_result == -1)
-    {
-        // set errno
-        return -1;
-    }
-
-    /*
-    packet_t* response = wait_response_from_server(&error);
-    if(error == -1)
-    {
-        // set errno
-        destroy_packet(&of_packet);
-        return -1;
-    }
-
-    if(response->header.op != OP_OPEN_FILE)
-    {
-        CLEANUP_PACKETS(&of_packet, response);
-        return -1;
-    }
-
-    // leggo la risposta
-    CLEANUP_PACKETS(&of_packet, response);*/
-
-    int result = close(fd_server);
-    return result;
+    int error;
+    SEND_TO_SERVER(of_packet, error);
+    
+    return close(fd_server);
 }
 
 int openFile(const char* pathname, int flags)
 {
-    packet_t* of_packet = create_packet(OP_OPEN_FILE, 0);
+    packet_t* of_packet = create_packet(OP_OPEN_FILE, sizeof(int) + MAX_PATHNAME_API_LENGTH);
     int error;
-    error = write_data(of_packet, &flags, sizeof(int));
-    CHECK_WRITE_PACKET(error);
-    error = write_data_str(of_packet, pathname);
-    CHECK_WRITE_PACKET(error);
-
+    WRITE_PACKET(of_packet, error, &flags, sizeof(int));
+    WRITE_PACKET_STR(of_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
+    
     print_packet(of_packet);
-    int result = send_packet_to_fd(fd_server, of_packet);
-    if(result == -1)
-    {
-        // set errno
-        printf("Failed sending packet.\n");
-        destroy_packet(of_packet);
-        return -1;
-    }
 
-    packet_t* response = wait_response_from_server(&error);
-    if(error == -1)
-    {
-        // set errno
-        printf("Failed receiving packet.\n");
-        destroy_packet(of_packet);
-        WAIT_TIMER;
-        return -1;
-    }
+    SEND_TO_SERVER(of_packet, error);
 
-    RET_ON_ERROR(of_packet, response, error);
-    DEBUG_OK(response);
+    packet_t* res;
+    WAIT_UNTIL_RESPONSE(res, of_packet, error);
+
+    RET_ON_ERROR(of_packet, res);
+    DEBUG_OK(res);
 
     // leggo la risposta
-    CLEANUP_PACKETS(of_packet, response);
-    WAIT_TIMER;
+    CLEANUP_PACKETS(of_packet, res);
     return 0;
 }
 
 int readFile(const char* pathname, void** buf, size_t* size)
 {
-    packet_t* rf_packet = create_packet(OP_READ_FILE, 0);
+    packet_t* rf_packet = create_packet(OP_READ_FILE, MAX_PATHNAME_API_LENGTH);
     int error;
-    error = write_data_str(rf_packet, pathname);
-    CHECK_WRITE_PACKET(error);
+    WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
     
-    int result = send_packet_to_fd(fd_server, rf_packet);
-    if(result == -1)
-    {
-        // set errno
+    SEND_TO_SERVER(rf_packet, error);
 
-        return -1;
-    }
+    packet_t* res;
+    WAIT_UNTIL_RESPONSE(res, rf_packet, error);
 
-    packet_t* response = wait_response_from_server(&error);
-    if(error == -1)
-    {
-        // set errno
-        destroy_packet(rf_packet);
-        WAIT_TIMER;
-        return -1;
-    }
+    RET_ON_ERROR(rf_packet, res);
+    DEBUG_OK(res);
 
-    RET_ON_ERROR(rf_packet, response, error);
+    int buffer_size = packet_get_remaining_byte_count(res);
+    CHECK_FOR_FATAL(*buf, malloc(buffer_size));
+    READ_PACKET(res, error, *buf, buffer_size, rf_packet);
 
-    *buf = read_until_end(response, size, &error);
-    if(error < 0)
-    {
+    // salva su disco
 
-        CLEANUP_PACKETS(rf_packet, response);
-        WAIT_TIMER;
-        return -1;
-    }
-
-    CLEANUP_PACKETS(rf_packet, response);
-    WAIT_TIMER;
+    CLEANUP_PACKETS(rf_packet, res);
     return 0;
 }
 
 int readNFiles(int N, const char* dirname)
 {
-    packet_t* rf_packet = create_packet(OP_READN_FILES, sizeof(int));
+    packet_t* rf_packet = create_packet(OP_READN_FILES, sizeof(int) + MAX_PATHNAME_API_LENGTH);
     int error;
-    error = write_data(rf_packet, &N, sizeof(int));
-    CHECK_WRITE_PACKET(error);
-    error = write_data_str(rf_packet, dirname);
-    CHECK_WRITE_PACKET(error);
+    WRITE_PACKET(rf_packet, error, &N, sizeof(int));
+    WRITE_PACKET(rf_packet, error, dirname, MAX_PATHNAME_API_LENGTH);
     
-    int result = send_packet_to_fd(fd_server, rf_packet);
-    if(result == -1)
-    {
-        // set errno
+    SEND_TO_SERVER(rf_packet, error);
 
-        return -1;
-    }
+    packet_t* res;
+    WAIT_UNTIL_RESPONSE(res, rf_packet, error);
+    RET_ON_ERROR(rf_packet, res);
 
-    packet_t* response = wait_response_from_server(&error);
-    if(error == -1)
-    {
-        // set errno
-        destroy_packet(rf_packet);
-        WAIT_TIMER;
-        return -1;
-    }
+    // salva su disco / leggi risposta
 
-    RET_ON_ERROR(rf_packet, response, error);
-    CLEANUP_PACKETS(rf_packet, response);
-    WAIT_TIMER;
+    CLEANUP_PACKETS(rf_packet, res);
     return 0;
 }
 
 int writeFile(const char* pathname, const char* dirname)
 {
-    packet_t* rf_packet = create_packet(OP_WRITE_FILE, 0);
+    packet_t* rf_packet = create_packet(OP_WRITE_FILE, MAX_PATHNAME_API_LENGTH * 2);
     int error;
-    error = write_data_str(rf_packet, pathname);
-    CHECK_WRITE_PACKET(error);
+    WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
+    WRITE_PACKET_STR(rf_packet, error, dirname, MAX_PATHNAME_API_LENGTH);
 
-    int result = send_packet_to_fd(fd_server, rf_packet);
-    if(result == -1)
-    {
-        // set errno
-        destroy_packet(rf_packet);
-        return -1;
-    }
+    SEND_TO_SERVER(rf_packet, error);
 
-    packet_t* response = wait_response_from_server(&error);
-    if(error == -1)
-    {
-        // set errno
-        destroy_packet(rf_packet);
-        WAIT_TIMER;
-        return -1;
-    }
+    packet_t* res;
+    WAIT_UNTIL_RESPONSE(res, rf_packet, error);
 
-    RET_ON_ERROR(rf_packet, response, error);
-    DEBUG_OK(response);
+    RET_ON_ERROR(rf_packet, res);
+    DEBUG_OK(res);
 
-    CLEANUP_PACKETS(rf_packet, response);
-    WAIT_TIMER;
+    // salva eventualmente il file espulso su disco
+
+    CLEANUP_PACKETS(rf_packet, res);
     return 0;
 }
 
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname)
 {
-    packet_t* rf_packet = create_packet(OP_APPEND_FILE, sizeof(size_t));
+    packet_t* rf_packet = create_packet(OP_APPEND_FILE, size + MAX_PATHNAME_API_LENGTH * 2);
     int error;
-    error = write_data(rf_packet, buf, size);
-    CHECK_WRITE_PACKET(error);
+    WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
+    WRITE_PACKET_STR(rf_packet, error, dirname, MAX_PATHNAME_API_LENGTH);
+    WRITE_PACKET(rf_packet, error, buf, size);
 
-    int result = send_packet_to_fd(fd_server, rf_packet);
-    if(result == -1)
-    {
-        // set errno
-        destroy_packet(rf_packet);
-        return -1;
-    }
+    SEND_TO_SERVER(rf_packet, error);
 
-    packet_t* response = wait_response_from_server(&error);
-    if(error == -1)
-    {
-        // set errno
-        destroy_packet(rf_packet);
-        WAIT_TIMER;
-        return -1;
-    }
+    packet_t* res;
+    WAIT_UNTIL_RESPONSE(res, rf_packet, error);
 
-    RET_ON_ERROR(rf_packet, response, error);
-    DEBUG_OK(response);
+    RET_ON_ERROR(rf_packet, res);
+    DEBUG_OK(res);
 
-    CLEANUP_PACKETS(rf_packet, response);
-    WAIT_TIMER;
+    // salva eventualmente i file esplulsi dal server
+
+    CLEANUP_PACKETS(rf_packet, res);
     return 0;
 }
 
 int closeFile(const char* pathname)
 {
-    packet_t* rf_packet = create_packet(OP_CLOSE_FILE, 0);
+    packet_t* rf_packet = create_packet(OP_CLOSE_FILE, MAX_PATHNAME_API_LENGTH);
     int error;
-    error = write_data_str(rf_packet, pathname);
-    CHECK_WRITE_PACKET(error);
+    WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
 
-    int result = send_packet_to_fd(fd_server, rf_packet);
-    if(result == -1)
-    {
-        // set errno
-        destroy_packet(rf_packet);
-        return -1;
-    }
+    SEND_TO_SERVER(rf_packet, error);
 
-    packet_t* response = wait_response_from_server(&error);
-    if(error == -1)
-    {
-        // set errno
-        destroy_packet(rf_packet);
-        WAIT_TIMER;
-        return -1;
-    }
+    packet_t* res;
+    WAIT_UNTIL_RESPONSE(res, rf_packet, error);
 
-    RET_ON_ERROR(rf_packet, response, error);
-    DEBUG_OK(response);
+    RET_ON_ERROR(rf_packet, res);
+    DEBUG_OK(res);
 
-    CLEANUP_PACKETS(rf_packet, response);
-    WAIT_TIMER;
+    // controlla la risposta
+
+    CLEANUP_PACKETS(rf_packet, res);
     return 0;
 }
 
 int removeFile(const char* pathname)
 {
-    packet_t* rf_packet = create_packet(OP_REMOVE_FILE, 0);
+    packet_t* rf_packet = create_packet(OP_REMOVE_FILE, MAX_PATHNAME_API_LENGTH);
     int error;
-    error = write_data_str(rf_packet, pathname); // set a constant later 
-    CHECK_WRITE_PACKET(error);
+    WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
 
-    int result = send_packet_to_fd(fd_server, rf_packet);
-    if(result == -1)
-    {
-        // set errno
-        return -1;
-        destroy_packet(rf_packet);
-    }
+    SEND_TO_SERVER(rf_packet, error);
 
-    packet_t* response = wait_response_from_server(&error);
-    if(error == -1)
-    {
-        // set errno
-        destroy_packet(rf_packet);
-        WAIT_TIMER;
-        return -1;
-    }
+    packet_t* res;
+    WAIT_UNTIL_RESPONSE(res, rf_packet, error);
 
-    RET_ON_ERROR(rf_packet, response, error);
-    DEBUG_OK(response);
+    RET_ON_ERROR(rf_packet, res);
+    DEBUG_OK(res);
 
-    CLEANUP_PACKETS(rf_packet, response);
-    WAIT_TIMER;
+    // controllo risposta
+
+    CLEANUP_PACKETS(rf_packet, res);
     return 0;
 }

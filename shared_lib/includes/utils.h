@@ -7,49 +7,43 @@
 
 typedef enum bool { FALSE, TRUE } bool_t;
 
-#define START_RED_CONSOLE "\033[31;1m"
-#define START_YELLOW_CONSOLE "\e[1;33m"
+#define START_RED_CONSOLE "\033[31m"
+#define START_YELLOW_CONSOLE "\033[33m"
 #define RESET_COLOR_CONSOLE "\033[0m\n"
 
-#define PRINT(level, ...)   PRINT_##level(__VA_ARGS__)
-
-#define PRINT_ERROR(...) printf(START_RED_CONSOLE); \
-                            printf("[Error] "); \
+#define PRINT_ERROR(errno_code, ...) printf(START_RED_CONSOLE "[Error] "); \
                             printf(__VA_ARGS__); \
-                            printf(RESET_COLOR_CONSOLE)
+                            printf("%s::%s:%d [%s]" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
-#define PRINT_WARNING(...) printf(START_YELLOW_CONSOLE); \
-                            printf("[Warning] "); \
+#define PRINT_WARNING(errno_code, ...) printf(START_YELLOW_CONSOLE "[Warning] "); \
                             printf(__VA_ARGS__); \
-                            printf(RESET_COLOR_CONSOLE)
+                            printf("%s::%s:%d [%s]" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
-#define PRINT_INFO(...)     printf("[Info] "  __VA_ARGS__)
+#define PRINT_INFO(...)     printf("[Info] "); \
+                            printf(__VA_ARGS__)
 
 #define EXIT_IF_FATAL(err) if(err == ENOMEM) { \
-                                PRINT(ERROR, "Fatal error: %s::%s:%d | %s", __FILE__, __func__, __LINE__, strerror(err)); \
+                                PRINT_ERROR(err, "FATAL ERROR "); \
                                 exit(err); \
                             }
   
-#define CHECK_FOR_FATAL(var, value, err) var = value; \
-                                            EXIT_IF_FATAL(err)
+#define CHECK_FOR_FATAL(var, value) var = value; \
+                                    EXIT_IF_FATAL(EXIT_FAILURE)
 
 #define CHECK_ERROR_EQ(var, value, err, ret_value, ...) if((var = value) == err) { \
-                                                            PRINT(ERROR, __VA_ARGS__); \
-                                                            PRINT(ERROR, "%s::%s:%d\n", __FILE__, __func__, __LINE__); \
+                                                            PRINT_ERROR(errno, __VA_ARGS__); \
                                                             return ret_value; \
                                                         }
 
 #define CHECK_ERROR_EQ_ERRNO(var, value, err, ret_value, errno_val, ...) if((var = value) == err) { \
                                                                             errno = errno_val; \
-                                                                            PRINT(ERROR, __VA_ARGS__); \
-                                                                            PRINT(ERROR, "%s::%s:%d [%s]\n", __FILE__, __func__, __LINE__, strerror(errno_val)); \
+                                                                            PRINT_ERROR(errno_val, __VA_ARGS__); \
                                                                             return ret_value; \
                                                                         }
                                 
 #define CHECK_WARNING_EQ_ERRNO(var, value, err, ret_value, errno_val, ...) if((var = value) == err) { \
                                                                             errno = errno_val; \
-                                                                            PRINT(WARNING, __VA_ARGS__); \
-                                                                            PRINT(WARNING, "%s::%s:%d [%s]\n", __FILE__, __func__, __LINE__, strerror(errno_val)); \
+                                                                            PRINT_WARNING(errno_val, __VA_ARGS__); \
                                                                             return ret_value; \
                                                                         }
 

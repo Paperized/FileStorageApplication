@@ -270,6 +270,7 @@ int handle_open_file_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
+    return 1;
 }
 
 int handle_write_file_req(packet_t* req, pthread_t curr)
@@ -354,7 +355,7 @@ int handle_write_file_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
-    free(pathname);
+    return 1;
 }
 
 int handle_append_file_req(packet_t* req, pthread_t curr)
@@ -388,7 +389,7 @@ int handle_append_file_req(packet_t* req, pthread_t curr)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
-        CHECK_FOR_FATAL(buffer, malloc(sizeof(req->header.len - req->cursor_index)), errno);
+        CHECK_FOR_FATAL(buffer, malloc(sizeof(req->header.len - req->cursor_index)));
         read_data(req, buffer, req->header.len - req->cursor_index);
         bool_t enough_totm = is_total_memory_enough(buff_size);
         if(!enough_totm)
@@ -438,7 +439,7 @@ int handle_append_file_req(packet_t* req, pthread_t curr)
     destroy_packet(response);
     if(buffer)
         free(buffer);
-    free(pathname);
+    return 1;
 }
 
 int handle_read_file_req(packet_t* req, pthread_t curr)
@@ -493,6 +494,7 @@ int handle_read_file_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
+    return 1;
 }
 
 int handle_nread_files_req(packet_t* req, pthread_t curr)
@@ -551,6 +553,7 @@ int handle_nread_files_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
+    return 1;
 }
 
 int handle_remove_file_req(packet_t* req, pthread_t curr)
@@ -604,6 +607,7 @@ int handle_remove_file_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
+    return 1;
 }
 
 int handle_close_file_req(packet_t* req, pthread_t curr)
@@ -654,4 +658,5 @@ int handle_close_file_req(packet_t* req, pthread_t curr)
     }
 
     destroy_packet(response);
+    return 1;
 }
