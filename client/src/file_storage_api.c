@@ -158,7 +158,7 @@ int readFile(const char* pathname, void** buf, size_t* size)
     DEBUG_OK(res);
 
     int buffer_size = packet_get_remaining_byte_count(res);
-    CHECK_FOR_FATAL(*buf, malloc(buffer_size));
+    CHECK_FATAL_ERRNO(*buf, malloc(buffer_size), NO_MEM_FATAL);
     READ_PACKET(res, error, *buf, buffer_size, rf_packet);
 
     // salva su disco

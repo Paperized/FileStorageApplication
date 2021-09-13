@@ -10,18 +10,8 @@
 typedef uint32_t packet_op;
 typedef uint32_t packet_len;
 
-typedef struct packet_header_t {
-    packet_op op;
-    int fd_sender;
-    packet_len len;
-} packet_header_t;
-
-typedef struct packet_t {
-    packet_header_t header;
-    char* content;
-    packet_len capacity;
-    packet_len cursor_index;
-} packet_t;
+typedef struct packet_header packet_header_t;
+typedef struct packet packet_t;
 
 packet_t* create_packet(packet_op op, ssize_t initial_capacity);
 packet_t* read_packet_from_fd(int fd);

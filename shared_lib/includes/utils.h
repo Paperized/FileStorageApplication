@@ -11,24 +11,31 @@ typedef enum bool { FALSE, TRUE } bool_t;
 #define START_YELLOW_CONSOLE "\033[33m"
 #define RESET_COLOR_CONSOLE "\033[0m\n"
 
+#define PRINT_FATAL(errno_code, ...) printf(START_RED_CONSOLE "[Fatal] "); \
+                            printf(__VA_ARGS__); \
+                            printf(" %s::%s:%d [%s]" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+
 #define PRINT_ERROR(errno_code, ...) printf(START_RED_CONSOLE "[Error] "); \
                             printf(__VA_ARGS__); \
-                            printf("%s::%s:%d [%s]" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+                            printf(" %s::%s:%d [%s]" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
 #define PRINT_WARNING(errno_code, ...) printf(START_YELLOW_CONSOLE "[Warning] "); \
                             printf(__VA_ARGS__); \
-                            printf("%s::%s:%d [%s]" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+                            printf(" %s::%s:%d [%s]" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
 #define PRINT_INFO(...)     printf("[Info] "); \
                             printf(__VA_ARGS__)
-
-#define EXIT_IF_FATAL(err) if(err == ENOMEM) { \
-                                PRINT_ERROR(err, "FATAL ERROR "); \
-                                exit(err); \
-                            }
   
-#define CHECK_FOR_FATAL(var, value) var = value; \
-                                    EXIT_IF_FATAL(EXIT_FAILURE)
+#define CHECK_FATAL_ERRNO(var, value, ...) var = value; \
+                                            if(errno == ENOMEM) { \
+                                                PRINT_FATAL(errno, __VA_ARGS__); \
+                                                exit(EXIT_FAILURE); \
+                                            }
+
+#define CHECK_FATAL_EQ(var, value, err, ...) if((var = value) == err) { \
+                                                PRINT_FATAL(errno, __VA_ARGS__); \
+                                                exit(EXIT_FAILURE); \
+                                            }
 
 #define CHECK_ERROR_EQ(var, value, err, ret_value, ...) if((var = value) == err) { \
                                                             PRINT_ERROR(errno, __VA_ARGS__); \
@@ -80,5 +87,7 @@ int append_file_util(const char* pathname, void* buffer, size_t size);
 
 void extract_dirname_and_filename(const char* fullpath, char** dir, char** fn);
 char* buildpath(char* src1, const char* src2, size_t src1length, size_t src2length);
+
+#define NO_MEM_FATAL "Cannot allocate more memory!"
 
 #endif

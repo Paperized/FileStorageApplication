@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "config_params.h"
+#include "utils.h"
 
 struct configuration_params {
     unsigned int thread_workers;
@@ -14,6 +15,8 @@ struct configuration_params {
 
 void print_config_params(const configuration_params_t* config)
 {
+    if(!config) return;
+
     printf("********* CONFIGURATION PARAMS *********\n");
 
     printf("Socket File Name: %s\n", config->socket_name);
@@ -29,13 +32,10 @@ void print_config_params(const configuration_params_t* config)
 configuration_params_t* load_config_params(const char* config_path_name)
 {
     FILE* fptr;
-    
-    if((fptr = fopen(config_path_name, "r")) == NULL)
-    {
-        return NULL;
-    }
+    configuration_params_t* config;
 
-    configuration_params_t* config = malloc(sizeof(configuration_params_t));
+    CHECK_FATAL_EQ(fptr, fopen(config_path_name, "r"), NULL, "Configuration file cannot be opened!");
+    CHECK_FATAL_ERRNO(config, malloc(sizeof(configuration_params_t)), NO_MEM_FATAL);
 
     fscanf(fptr, "SERVER_SOCKET_NAME=%s\n", config->socket_name);
     fscanf(fptr, "SERVER_THREAD_WORKERS=%u\n", &config->thread_workers);

@@ -389,7 +389,7 @@ int handle_append_file_req(packet_t* req, pthread_t curr)
         error = ERR_PATH_NOT_EXISTS;
     else
     {
-        CHECK_FOR_FATAL(buffer, malloc(sizeof(req->header.len - req->cursor_index)));
+        CHECK_FATAL_ERRNO(buffer, malloc(sizeof(req->header.len - req->cursor_index)), NO_MEM_FATAL);
         read_data(req, buffer, req->header.len - req->cursor_index);
         bool_t enough_totm = is_total_memory_enough(buff_size);
         if(!enough_totm)

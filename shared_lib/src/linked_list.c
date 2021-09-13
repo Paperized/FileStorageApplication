@@ -15,7 +15,7 @@ struct linked_list {
 
 int malloc_node(node_t** node)
 {
-    CHECK_FOR_FATAL(*node, malloc(sizeof(node_t)));
+    CHECK_FATAL_ERRNO(*node, malloc(sizeof(node_t)), NO_MEM_FATAL);
     if(node == NULL)
         return -1;
     
@@ -38,7 +38,7 @@ node_t* node_get_next(node_t* node)
 linked_list_t* ll_create()
 {
     linked_list_t* new_list;
-    CHECK_FOR_FATAL(new_list, malloc(sizeof(linked_list_t)));
+    CHECK_FATAL_ERRNO(new_list, malloc(sizeof(linked_list_t)), NO_MEM_FATAL);
     memset(new_list, 0, sizeof(linked_list_t));
     return new_list;
 }

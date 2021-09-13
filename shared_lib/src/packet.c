@@ -7,6 +7,19 @@
 #include "server_api_utils.h"
 #include "utils.h"
 
+struct packet_header {
+    packet_op op;
+    int fd_sender;
+    packet_len len;
+};
+
+struct packet {
+    struct packet_header header;
+    char* content;
+    packet_len capacity;
+    packet_len cursor_index;
+};
+
 #define CHECK_PACKET2(p) if(p == NULL) return -1
 #define CHECK_PACKET(p) if(p == NULL) return
 
@@ -82,7 +95,7 @@ packet_t* read_packet_from_fd(int fd)
     CHECK_READ_BYTES(byte_read, fd, &len, sizeof(packet_len), "Cannot read packet_len! fd(%d)", fd);
 
     char* content;
-    CHECK_FOR_FATAL(content, malloc(len));
+    CHECK_FATAL_ERRNO(content, malloc(len), NO_MEM_FATAL);
     CHECK_READ_BYTES(byte_read, fd, content, len, "Cannot read packet_body! fd(%d)", fd);
 
     packet_t* new_packet = create_packet(op, 0);
@@ -131,11 +144,11 @@ int write_data(packet_t* p, const void* data, size_t size)
     {
         if(buff_size == 0)
         {
-            CHECK_FOR_FATAL(current_buffer, malloc(size));
+            CHECK_FATAL_ERRNO(current_buffer, malloc(size), NO_MEM_FATAL);
         }
         else
         {
-            CHECK_FOR_FATAL(current_buffer, realloc(current_buffer, p->capacity + (size - free_space)));
+            CHECK_FATAL_ERRNO(current_buffer, realloc(current_buffer, p->capacity + (size - free_space)), NO_MEM_FATAL);
         }
 
         p->capacity = buff_size + size;
@@ -250,7 +263,7 @@ int read_data_str_alloc(packet_t* p, char** str)
     }
 
     size_t needed_bytes = current_str_length * sizeof(char);
-    CHECK_FOR_FATAL(*str, malloc(needed_bytes));
+    CHECK_FATAL_ERRNO(*str, malloc(needed_bytes), NO_MEM_FATAL);
     memcpy(*str, (current_buffer + cursor_index), needed_bytes);
     p->cursor_index = cursor_index + current_str_length;
     return 1;
@@ -280,14 +293,14 @@ int is_packet_valid(packet_t* p)
 packet_t* create_packet(packet_op op, ssize_t initial_capacity)
 {
     packet_t* new_p;
-    CHECK_FOR_FATAL(new_p, malloc(sizeof(packet_t)));
+    CHECK_FATAL_ERRNO(new_p, malloc(sizeof(packet_t)), NO_MEM_FATAL);
     memset(new_p, 0, sizeof(packet_t));
     new_p->header.op = op;
     new_p->header.fd_sender = -1;
 
     new_p->capacity = initial_capacity;
     if(initial_capacity > 0) {
-        CHECK_FOR_FATAL(new_p->content, malloc(new_p->capacity));
+        CHECK_FATAL_ERRNO(new_p->content, malloc(new_p->capacity), NO_MEM_FATAL);
     }
 
     return new_p;
