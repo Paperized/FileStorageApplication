@@ -4,30 +4,51 @@
 
 #include "client_params.h"
 
+struct string_int_pair {
+    char* str_value;
+    int int_value;
+};
+
+struct client_params {
+    bool_t print_help;
+
+    char server_socket_name[MAX_PATHNAME_API_LENGTH];
+
+    int num_file_readed;
+    char* dirname_readed_files;
+
+    linked_list_t* dirname_file_sendable;
+    linked_list_t* file_list_sendable;
+    linked_list_t* file_list_readable;
+    linked_list_t* file_list_removable;
+
+    int ms_between_requests;
+    bool_t print_operations;
+};
+
 #define BREAK_ON_NULL(p) if(p == NULL) break
 
 const char const_comma = ',';
 #define COMMA &const_comma
 
-client_params_t g_params;
+client_params_t* g_params = NULL;
 
-void init_client_params(client_params_t* params)
+void init_client_params(client_params_t** params)
 {
-    params->print_help = FALSE;
+    CHECK_FATAL_EQ(*params, malloc(sizeof(client_params_t)), NULL, NO_MEM_FATAL);
+    (*params)->print_help = FALSE;
 
-    params->num_file_readed = 0;
+    (*params)->num_file_readed = 0;
 
-    params->file_list_sendable = ll_create();
-    params->file_list_removable = ll_create();
-    params->file_list_readable = ll_create();
-    params->dirname_file_sendable = ll_create();
+    (*params)->file_list_sendable = ll_create();
+    (*params)->file_list_removable = ll_create();
+    (*params)->file_list_readable = ll_create();
+    (*params)->dirname_file_sendable = ll_create();
 
-    params->dirname_readed_files = NULL;
+    (*params)->dirname_readed_files = NULL;
 
-    params->ms_between_requests = 0;
-
-
-    params->print_operations = FALSE;
+    (*params)->ms_between_requests = 0;
+    (*params)->print_operations = FALSE;
 }
 
 static void free_pair(void* ptr)
@@ -44,36 +65,7 @@ void free_client_params(client_params_t* params)
     ll_free(params->file_list_removable, free);
     ll_free(params->dirname_file_sendable, free_pair);
     free(params->dirname_readed_files);
-
-    /*
-    while(ll_count(params->file_list_sendable) > 0)
-    {
-        char* str;
-        ll_remove_last(&params->file_list_sendable, (void**)&str);
-        free(str);
-    }
-
-    while(ll_count(params->file_list_readable) > 0)
-    {
-        char* str;
-        ll_remove_last(&params->file_list_readable, (void**)&str);
-        free(str);
-    }
-
-    while(ll_count(params->file_list_removable) > 0)
-    {
-        char* str;
-        ll_remove_last(params->file_list_removable, (void**)&str);
-        free(str);
-    }
-
-    while(ll_count(params->dirname_file_sendable) > 0)
-    {
-        string_int_pair_t* pair;
-        ll_remove_last(&params->dirname_file_sendable, (void**)&pair);
-        free(pair->str_value);
-        free(pair);
-    }*/
+    free(params);
 }
 
 void tokenize_filenames_into_ll(char* str, linked_list_t* ll)
@@ -202,6 +194,91 @@ int check_prerequisited(client_params_t* params)
 
     return 0;
 }
+
+bool_t client_is_print_help(client_params_t* params)
+{
+    if(!params) return FALSE;
+
+    return params->print_help;
+}
+
+char* client_get_socket_name(client_params_t* params)
+{
+    if(!params) return NULL;
+
+    return params->server_socket_name;
+}
+
+int client_num_file_readed(client_params_t* params)
+{
+    if(!params) return 0;
+
+    return params->num_file_readed;
+}
+
+char* client_dirname_readed_files(client_params_t* params)
+{
+    if(!params) return NULL;
+
+    return params->dirname_readed_files;
+}
+
+linked_list_t* client_dirname_file_sendable(client_params_t* params)
+{
+    if(!params) return NULL;
+
+    return params->dirname_file_sendable;
+}
+
+linked_list_t* client_file_list_sendable(client_params_t* params)
+{
+    if(!params) return NULL;
+
+    return params->file_list_sendable;
+}
+
+linked_list_t* client_file_list_readable(client_params_t* params)
+{
+    if(!params) return NULL;
+
+    return params->file_list_readable;
+}
+
+linked_list_t* client_file_list_removable(client_params_t* params)
+{
+    if(!params) return NULL;
+
+    return params->file_list_removable;
+}
+
+int client_ms_between_requests(client_params_t* params)
+{
+    if(!params) return 0;
+
+    return params->ms_between_requests;
+}
+
+bool_t client_print_operations(client_params_t* params)
+{
+    if(!params) return FALSE;
+
+    return params->print_operations;
+}
+
+int pair_get_int(string_int_pair_t* pair)
+{
+    if(!pair) return 0;
+
+    return pair->int_value;
+}
+
+char* pair_get_str(string_int_pair_t* pair)
+{
+    if(!pair) return NULL;
+
+    return pair->str_value;
+}
+
 
 void print_params(client_params_t* params)
 {

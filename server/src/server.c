@@ -183,11 +183,11 @@ void* handle_client_requests(void* data)
             continue;
         }
 
-        printf("[W/%lu] Handling client with id: %d.\n", curr, request->header.fd_sender);
+        printf("[W/%lu] Handling client with id: %d.\n", curr, packet_get_sender(request));
 
         int res;
         // Handle the message
-        switch(request->header.op)
+        switch(packet_get_op(request))
         {
             case OP_OPEN_FILE:
                 res = handle_open_file_req(request, curr);
@@ -415,9 +415,9 @@ void* handle_clients_packets()
                 printf("reading packet %d.\n", curr_session->fd);
                 packet_t* req = read_packet_from_fd(curr_session->fd);
 
-                if(req)
+                if(is_packet_valid(req))
                 {
-                    if(req->header.op == OP_CLOSE_CONN)
+                    if(packet_get_op(req) == OP_CLOSE_CONN)
                     {
                         // chiudo la connessione
                         EXEC_WITH_MUTEX(FD_CLR(curr_session->fd, &clients_connected_set), &clients_set_mutex);

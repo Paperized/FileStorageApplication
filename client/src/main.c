@@ -23,29 +23,30 @@ int main(int argc, char **argv)
 {
     init_client_params(&g_params);
 
-    int error = read_args_client_params(argc, argv, &g_params);
+    int error = read_args_client_params(argc, argv, g_params);
     if(error != 0)
     {
         printf("Missing params or invalid params!.\n");
         return 0;
     }
 
-    if(g_params.print_help)
+    if(client_is_print_help(g_params))
     {
         print_help();
         return 0;
     }
 
-    print_params(&g_params);
-    if(check_prerequisited(&g_params) == -1)
+    print_params(g_params);
+    if(check_prerequisited(g_params) == -1)
     {
-        free_client_params(&g_params);
+        free_client_params(g_params);
         return 0;
     }
 
     struct timespec t;
     t.tv_sec = 10;
-    int connected = openConnection(g_params.server_socket_name, 1, t);
+    char* socket_name = client_get_socket_name(g_params);
+    int connected = openConnection(socket_name, 1, t);
     if(connected != 0)
     {
         printf("couldnt connect to the server.\n");
@@ -62,14 +63,14 @@ int main(int argc, char **argv)
 
         remove_filenames();
 
-        int closed = closeConnection(g_params.server_socket_name);
+        int closed = closeConnection(socket_name);
         if(closed != 0)
             printf("error during closeConnection.\n");
         else
             printf("connection closed.\n");
     }
 
-    free_client_params(&g_params);
+    free_client_params(g_params);
     return 0;
 }
 
@@ -120,18 +121,18 @@ void send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remain
 
 void send_file_inside_dirs()
 {
-    node_t* curr_dir = ll_get_head_node(g_params.dirname_file_sendable);
+    node_t* curr_dir = ll_get_head_node(client_dirname_file_sendable(g_params));
     while(curr_dir != NULL)
     {
         string_int_pair_t* value = node_get_value(curr_dir);
-        int remaining = value->int_value;
-        send_files_inside_dir_rec(value->str_value, value->int_value == 0, &remaining);
+        int remaining = pair_get_int(value);
+        send_files_inside_dir_rec(pair_get_str(value), remaining == 0, &remaining);
     }
 }
 
 void send_filenames()
 {
-    node_t* curr = ll_get_head_node(g_params.file_list_sendable);
+    node_t* curr = ll_get_head_node(client_file_list_sendable(g_params));
     while(curr != NULL)
     {
         char* curr_filename = node_get_value(curr);
@@ -176,16 +177,17 @@ void read_file(const char* filename)
         return;
     }
 
-    if(g_params.dirname_readed_files != NULL)
+    char* dirname_readed_files = client_dirname_readed_files(g_params);
+    if(dirname_readed_files != NULL)
     {
         // save file
         char *dirname, *fname;
         extract_dirname_and_filename(filename, &dirname, &fname);
 
-        char* newpath_built = buildpath(g_params.dirname_readed_files, fname, strlen(g_params.dirname_readed_files), strlen(fname));
+        char* newpath_built = buildpath(dirname_readed_files, fname, strlen(dirname_readed_files), strlen(fname));
         if(write_file_util(newpath_built, buffer, buffer_size) == -1)
         {
-            printf("Couldnt save file: %s in dir: %s.\n", fname, g_params.dirname_readed_files);
+            printf("Couldnt save file: %s in dir: %s.\n", fname, dirname_readed_files);
         }
         
         free(newpath_built);
@@ -201,7 +203,7 @@ void read_file(const char* filename)
 
 void read_filenames()
 {
-    node_t* curr = ll_get_head_node(g_params.file_list_readable);
+    node_t* curr = ll_get_head_node(client_file_list_readable(g_params));
     while(curr != NULL)
     {
         char* curr_filename = node_get_value(curr);
@@ -213,12 +215,12 @@ void read_filenames()
 
 void read_n_files()
 {
-    readNFiles(g_params.num_file_readed, g_params.dirname_readed_files);
+    readNFiles(client_num_file_readed(g_params), client_dirname_readed_files(g_params));
 }
 
 void remove_filenames()
 {
-    node_t* curr = ll_get_head_node(g_params.file_list_removable);
+    node_t* curr = ll_get_head_node(client_file_list_removable(g_params));
     while(curr != NULL)
     {
         char* curr_filename = node_get_value(curr);

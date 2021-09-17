@@ -6,36 +6,29 @@
 #include "server_api_utils.h"
 #include "utils.h"
 
-typedef struct string_int_pair
-{
-    char* str_value;
-    int int_value;
-} string_int_pair_t;
+typedef struct string_int_pair string_int_pair_t;
+typedef struct client_params client_params_t;
 
-typedef struct client_params {
-    bool_t print_help;
+extern client_params_t* g_params;
 
-    char server_socket_name[MAX_PATHNAME_API_LENGTH];
-
-    int num_file_readed;
-    char* dirname_readed_files;
-
-    linked_list_t* dirname_file_sendable;
-    linked_list_t* file_list_sendable;
-    linked_list_t* file_list_readable;
-    linked_list_t* file_list_removable;
-
-    int ms_between_requests;
-    bool_t print_operations;
-
-} client_params_t;
-
-void init_client_params(client_params_t* params);
+void init_client_params(client_params_t** params);
 int  read_args_client_params(int argc, char** argv, client_params_t* params);
 int  check_prerequisited(client_params_t* params);
 void free_client_params(client_params_t* params);
 
-extern client_params_t g_params;
+bool_t client_is_print_help(client_params_t*);
+char* client_get_socket_name(client_params_t*);
+int client_num_file_readed(client_params_t*);
+char* client_dirname_readed_files(client_params_t*);
+linked_list_t* client_dirname_file_sendable(client_params_t*);
+linked_list_t* client_file_list_sendable(client_params_t*);
+linked_list_t* client_file_list_readable(client_params_t*);
+linked_list_t* client_file_list_removable(client_params_t*);
+int client_ms_between_requests(client_params_t*);
+bool_t client_print_operations(client_params_t*);
+
+int pair_get_int(string_int_pair_t*);
+char* pair_get_str(string_int_pair_t*);
 
 void print_params(client_params_t* params);
 

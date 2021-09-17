@@ -37,7 +37,7 @@
 #define READ_PACKET(pk, read_res, data_ptr, size, req) read_res = read_data(pk, data_ptr, size); \
                                             CHECK_READ_PACKET(pk, read_res, req)
 
-#define RET_ON_ERROR(req, res) if(res->header.op == OP_ERROR) \
+#define RET_ON_ERROR(req, res) if(packet_get_op(res) == OP_ERROR) \
                                 { \
                                     int read_res; \
                                     server_open_file_options_t err; \
@@ -46,7 +46,7 @@
                                     return -1; \
                                 }
 
-#define DEBUG_OK(req) if(req->header.op == OP_OK) \
+#define DEBUG_OK(req) if(packet_get_op(res) == OP_OK) \
                         printf("OK.\n");
 
 #define SEND_TO_SERVER(req, error) error = send_packet_to_fd(fd_server, req); \

@@ -271,6 +271,8 @@ int read_data_str_alloc(packet_t* p, char** str)
 
 int is_packet_valid(packet_t* p)
 {
+    if(!p) return 0;
+
     packet_op op = p->header.op;
     switch (op)
     {
@@ -287,7 +289,7 @@ int is_packet_valid(packet_t* p)
         break;
     }
 
-    return 0;
+    return 1;
 }
 
 packet_t* create_packet(packet_op op, ssize_t initial_capacity)
@@ -322,4 +324,39 @@ int packet_get_remaining_byte_count(packet_t* p)
     if(!p) return 0;
 
     return p->header.len - p->cursor_index;
+}
+
+packet_op packet_get_op(packet_t* p)
+{
+    if(!p) return OP_UNKNOWN;
+
+    return p->header.op;
+}
+
+int packet_get_sender(packet_t* p)
+{
+    if(!p) return 0;
+
+    return p->header.fd_sender;
+}
+
+packet_len packet_get_length(packet_t* p)
+{
+    if(!p) return 0;
+
+    return p->header.len;
+}
+
+void packet_set_op(packet_t* p, packet_op op)
+{
+    if(!p) return;
+
+    p->header.op = op;
+}
+
+void packet_set_sender(packet_t* p, int sender)
+{
+    if(!p) return;
+    
+    p->header.fd_sender = sender;
 }

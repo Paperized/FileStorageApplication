@@ -5,7 +5,6 @@
 
 #define MAX_POLICY_LENGTH 40
 
-
 typedef struct configuration_params configuration_params_t;
 
 void print_config_params(const configuration_params_t* config);
