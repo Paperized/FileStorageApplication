@@ -37,7 +37,17 @@ typedef enum bool { FALSE, TRUE } bool_t;
                                                 exit(EXIT_FAILURE); \
                                             }
 
+#define CHECK_FATAL_EVAL(expr, ...)     if(expr) { \
+                                                PRINT_FATAL(errno, __VA_ARGS__); \
+                                                exit(EXIT_FAILURE); \
+                                            }
+
 #define CHECK_ERROR_EQ(var, value, err, ret_value, ...) if((var = value) == err) { \
+                                                            PRINT_ERROR(errno, __VA_ARGS__); \
+                                                            return ret_value; \
+                                                        }
+
+#define CHECK_ERROR_NEQ(var, value, err, ret_value, ...) if((var = value) != err) { \
                                                             PRINT_ERROR(errno, __VA_ARGS__); \
                                                             return ret_value; \
                                                         }
@@ -55,29 +65,33 @@ typedef enum bool { FALSE, TRUE } bool_t;
                                                                         }
 
 
-#define LOCK_MUTEX(m) pthread_mutex_lock(m);
+#define LOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_lock(m) != 0, "Mutex lock failed!")
 
 #define DLOCK_MUTEX(m) LOCK_MUTEX(m); \
                         printf("Lockato in riga: %d in %s Mutex: %s", __LINE__, __FILE__, (char*)#m); \
                         printf(".\n")
 
-#define UNLOCK_MUTEX(m) pthread_mutex_unlock(m);
+#define UNLOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_unlock(m) == 0, "Mutex unlock failed!")
 
 #define DUNLOCK_MUTEX(m) UNLOCK_MUTEX(m); \
                         printf("Unlockato in riga: %d in %s Mutex: %s", __LINE__, __FILE__, (char*)#m); \
                         printf(".\n")
 
-#define SET_VAR_MUTEX(var, expr, m)  pthread_mutex_lock(m); \
+#define COND_SIGNAL(s) CHECK_FATAL_EVAL(pthread_cond_signal(s) != 0, "Condition variable signal failed!")
+#define COND_BROADCAST(s) CHECK_FATAL_EVAL(pthread_cond_broadcast(s) != 0, "Condition variable signal failed!")
+#define COND_WAIT(s, m) CHECK_FATAL_EVAL(pthread_cond_wait(s, m) != 0, "Condition variable wait failed!")
+
+#define SET_VAR_MUTEX(var, expr, m)     LOCK_MUTEX(m); \
                                         var = expr; \
-                                        pthread_mutex_unlock(m)
+                                        UNLOCK_MUTEX(m)
 
-#define GET_VAR_MUTEX(expr, output, m) pthread_mutex_lock(m); \
+#define GET_VAR_MUTEX(expr, output, m) LOCK_MUTEX(m); \
                                       output = expr; \
-                                      pthread_mutex_unlock(m)
+                                      UNLOCK_MUTEX(m)
 
-#define EXEC_WITH_MUTEX(istr, m) pthread_mutex_lock(m); \
+#define EXEC_WITH_MUTEX(istr, m) LOCK_MUTEX(m); \
                                         istr; \
-                                        pthread_mutex_unlock(m)
+                                        UNLOCK_MUTEX(m)
 
 #define MIN(x, y) x < y ? x : y
 
@@ -89,5 +103,6 @@ void extract_dirname_and_filename(const char* fullpath, char** dir, char** fn);
 char* buildpath(char* src1, const char* src2, size_t src1length, size_t src2length);
 
 #define NO_MEM_FATAL "Cannot allocate more memory!"
+#define THREAD_CREATE_FATAL "Cannot create new thread!"
 
 #endif

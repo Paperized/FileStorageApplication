@@ -34,7 +34,7 @@ configuration_params_t* load_config_params(const char* config_path_name)
     FILE* fptr;
     configuration_params_t* config;
 
-    CHECK_FATAL_EQ(fptr, fopen(config_path_name, "r"), NULL, "Configuration file cannot be opened!");
+    CHECK_ERROR_EQ(fptr, fopen(config_path_name, "r"), NULL, NULL, "Configuration file cannot be opened!");
     CHECK_FATAL_ERRNO(config, malloc(sizeof(configuration_params_t)), NO_MEM_FATAL);
 
     fscanf(fptr, "SERVER_SOCKET_NAME=%s\n", config->socket_name);

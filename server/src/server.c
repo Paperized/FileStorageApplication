@@ -8,6 +8,7 @@
 #include "server.h"
 #include "server_api_utils.h"
 #include "handle_client.h"
+#include "replacement_policy.h"
 
 #define INITIALIZE_SERVER_FUNCTIONALITY(initializer, status) status = initializer(); \
                                                                 if(status != SERVER_OK) \
@@ -69,25 +70,6 @@ unsigned int workers_count = 0;
 
 int (*server_policy)(file_stored_t* f1, file_stored_t* f2);
 
-// 0 == equal, > 0 t1 greater, < 0 t1 less
-int cmp_time(struct timespec* t1, struct timespec* t2)
-{
-    if(t1->tv_sec != t2->tv_sec)
-        return t1->tv_sec - t2->tv_sec;
-
-    return t1->tv_nsec - t2->tv_nsec;
-}
-
-int fifo_policy(file_stored_t* f1, file_stored_t* f2)
-{
-    return cmp_time(&f1->creation_time, &f2->creation_time);
-}
-
-int lru_policy(file_stored_t* f1, file_stored_t* f2)
-{
-    return cmp_time(&f1->last_use_time, &f2->last_use_time);
-}
-
 void initialize_policy_delegate()
 {
     // pick a policy, default is fifo
@@ -95,11 +77,13 @@ void initialize_policy_delegate()
     config_get_policy_name(loaded_configuration, policy);
 
     if(strncmp(policy, "FIFO", 4) == 0)
-        server_policy = fifo_policy;
+        server_policy = replacement_policy_fifo;
     else if(strncmp(policy, "LRU", 3) == 0)
-        server_policy = lru_policy;
+        server_policy = replacement_policy_lru;
+    else if(strncmp(policy, "LFU", 3) == 0)
+        server_policy = replacement_policy_lfu;
     else
-        server_policy = fifo_policy;
+        server_policy = replacement_policy_fifo;
 }
 
 void free_keys_ht(void* key)
@@ -237,12 +221,15 @@ void* handle_client_requests(void* data)
 quit_signal_t server_wait_end_signal()
 {
     sigset_t managed_signals;
-    CHECK_ERROR(sigemptyset(&managed_signals) == -1, S_FAST);
-    CHECK_ERROR(sigaddset(&managed_signals, SIGQUIT) == -1, S_FAST);
-    CHECK_ERROR(sigaddset(&managed_signals, SIGHUP) == -1, S_FAST);
-    CHECK_ERROR(sigaddset(&managed_signals, SIGINT) == -1, S_FAST);
-    CHECK_ERROR(pthread_sigmask(SIG_SETMASK, &managed_signals, NULL) == -1, S_FAST);
+    int error;
+    CHECK_ERROR_EQ(error, sigemptyset(&managed_signals), -1, S_FAST, "Coudln't clear signals!");
+    CHECK_ERROR_EQ(error, sigaddset(&managed_signals, SIGQUIT), -1, S_FAST, "Couldn't add SIGQUIT to sigset!");
+    CHECK_ERROR_EQ(error, sigaddset(&managed_signals, SIGHUP), -1, S_FAST, "Couldn't add SIGHUP to sigset!");
+    CHECK_ERROR_EQ(error, sigaddset(&managed_signals, SIGINT), -1, S_FAST, "Couldn't add SIGINT to sigset!");
+    CHECK_ERROR_EQ(error, pthread_sigmask(SIG_SETMASK, &managed_signals, NULL), -1, S_FAST, "Couldn't set new sigmask!");
     
+    // ignore sigpipe
+
     quit_signal_t local_quit_signal = S_NONE;
     quit_signal_t shared_quit_signal;
     int last_signal;
@@ -296,13 +283,13 @@ quit_signal_t server_wait_end_signal()
 
 int initialize_workers()
 {
-    thread_workers_ids = malloc(config_get_num_workers(loaded_configuration) * (sizeof(pthread_t)));
-    if(thread_workers_ids == NULL)
-        return ERR_SOCKET_OUT_OF_MEMORY;
+    CHECK_FATAL_EQ(thread_workers_ids, malloc(config_get_num_workers(loaded_configuration) * (sizeof(pthread_t))), NULL, NO_MEM_FATAL);
 
+    int error;
     for(int i = 0; i < config_get_num_workers(loaded_configuration); ++i)
     {
-        CHECK_ERROR(pthread_create(&thread_workers_ids[i], NULL, &handle_client_requests, NULL) != 0, ERR_SOCKET_INIT_WORKERS);
+        CHECK_ERROR_NEQ(error, pthread_create(&thread_workers_ids[i], NULL, &handle_client_requests, NULL), 0,
+                 ERR_SOCKET_INIT_WORKERS, "Coudln't create the %dth thread!", i);
         workers_count += 1;
     }
 
@@ -316,14 +303,15 @@ void* handle_connections(void* params)
     {
         bool_t add_failed = FALSE;
 
-        printf("Waiting for new connections.\n");
+        PRINT_INFO("Waiting for new connections.\n");
         int new_id = accept(server_socket_id, NULL, 0);
         if(new_id == -1)
             continue;
 
         // add to queue
 
-        client_session_t* new_client = malloc(sizeof(client_session_t));
+        client_session_t* new_client;
+        CHECK_FATAL_EQ(new_client, malloc(sizeof(client_session_t)), NULL, NO_MEM_FATAL);
         memset(new_client, 0, sizeof(client_session_t));
         new_client->fd = new_id;
         
@@ -332,8 +320,8 @@ void* handle_connections(void* params)
         // if something go wrong with the queue we close the connection right away
         if(add_failed)
         {
+            PRINT_WARNING(errno, "ll_add_head failed!.\n");
             free(new_client);
-            printf("Error: some problems may occourred with malloc in ll_add_head.\n");
             close(new_id);
 
             LOCK_MUTEX(&clients_set_mutex);
@@ -354,7 +342,7 @@ void* handle_connections(void* params)
 
             EXEC_WITH_MUTEX(add_logging_entry(server_log, CLIENT_JOINED, new_id, NULL), &server_log_mutex);
 
-            pthread_cond_signal(&clients_connected_cond);
+            COND_SIGNAL(&clients_connected_cond);
         }
     }
 
@@ -363,8 +351,9 @@ void* handle_connections(void* params)
 
 int initialize_connection_accepter()
 {
+    int error;
     FD_ZERO(&clients_connected_set);
-    CHECK_ERROR(pthread_create(&thread_accepter_id, NULL, &handle_connections, NULL) != 0, ERR_SOCKET_INIT_ACCEPTER);
+    CHECK_ERROR_NEQ(error, pthread_create(&thread_accepter_id, NULL, &handle_connections, NULL), 0, ERR_SOCKET_INIT_ACCEPTER, THREAD_CREATE_FATAL);
 
     connection_accepter_initialized = TRUE;
     return SERVER_OK;
@@ -385,7 +374,7 @@ void* handle_clients_packets()
         size_t n_clients;
         while((n_clients = ll_count(clients_connected)) == 0)
         {
-            pthread_cond_wait(&clients_connected_cond, &clients_list_mutex);
+            COND_WAIT(&clients_connected_cond, &clients_list_mutex);
 
             BREAK_ON_FAST_QUIT(quit_signal, &clients_list_mutex);
         }
@@ -445,7 +434,9 @@ void* handle_clients_packets()
 
                     enqueue_m(requests_queue, req);
                     if(count_q(requests_queue) == 1)
-                        pthread_cond_signal(&request_received_cond);
+                    {
+                        COND_SIGNAL(&request_received_cond);
+                    }
 
                     UNLOCK_MUTEX(&requests_queue_mutex);
                 }
@@ -464,7 +455,8 @@ void* handle_clients_packets()
 
 int initialize_reader()
 {
-    CHECK_ERROR(pthread_create(&thread_reader_id, NULL, &handle_clients_packets, NULL) != 0, ERR_SERVER_INIT_READER);
+    int error;
+    CHECK_ERROR_NEQ(error, pthread_create(&thread_reader_id, NULL, &handle_clients_packets, NULL), 0, ERR_SERVER_INIT_READER, THREAD_CREATE_FATAL);
 
     reader_initialized = TRUE;
     return SERVER_OK;
@@ -484,7 +476,10 @@ int server_wait_for_threads()
     }
 
     if(closing_signal == S_FAST)
-        pthread_cond_broadcast(&request_received_cond);
+    {
+        COND_BROADCAST(&request_received_cond);
+    }
+        
 
     printf("Joining workers thread.\n");
     for(int i = 0; i < workers_count; ++i)
@@ -499,7 +494,7 @@ int server_wait_for_threads()
     if(closing_signal == S_FAST)
     {
         printf("Joining reader thread.\n");
-        pthread_cond_signal(&clients_connected_cond);
+        COND_SIGNAL(&clients_connected_cond);
         pthread_join(thread_reader_id, NULL);
     }
 
@@ -560,7 +555,7 @@ int init_server(const configuration_params_t* config)
     loaded_configuration = (configuration_params_t*)config;
 
     server_socket_id = socket(AF_UNIX, SOCK_STREAM, 0);
-    CHECK_ERROR(server_socket_id == -1, ERR_SOCKET_FAILED);
+    CHECK_ERROR_EQ(server_socket_id, socket(AF_UNIX, SOCK_STREAM, 0), -1, ERR_SOCKET_FAILED, "Couldn't initialize socket!");
 
     char socket_name[MAX_PATHNAME_API_LENGTH];
     config_get_socket_name(loaded_configuration, socket_name);
@@ -571,8 +566,10 @@ int init_server(const configuration_params_t* config)
 
     remove(socket_name);
 
-    CHECK_ERROR(bind(server_socket_id, (struct sockaddr*)&sa, sizeof(sa)) == -1, ERR_SOCKET_BIND_FAILED);
-    CHECK_ERROR(listen(server_socket_id, config_get_backlog_sockets_num(loaded_configuration)) == -1, ERR_SOCKET_LISTEN_FAILED);
+    CHECK_ERROR_EQ(server_socket_id, bind(server_socket_id, (struct sockaddr*)&sa,
+                     sizeof(sa)), -1, ERR_SOCKET_BIND_FAILED, "Couldn't bind socket!");
+    CHECK_ERROR_EQ(server_socket_id, listen(server_socket_id, 
+                    config_get_backlog_sockets_num(loaded_configuration)), -1, ERR_SOCKET_LISTEN_FAILED, "Couldn't listen socket!");
 
     socket_initialized = TRUE;
     return SERVER_OK;

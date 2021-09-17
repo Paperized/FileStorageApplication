@@ -56,7 +56,7 @@ compile-client: $(CDIR)/bin/client
 compile-shared_lib: $(LDIR)/bin/shared_lib
 
 
-$(SDIR)/bin/server: $(SDIR)/obj/config_params.o $(SDIR)/obj/server.o $(SDIR)/obj/handle_client.o $(SDIR)/obj/logging.o $(LDIR)/bin/shared_lib.a
+$(SDIR)/bin/server: $(SDIR)/obj/config_params.o $(SDIR)/obj/server.o $(SDIR)/obj/handle_client.o $(SDIR)/obj/logging.o $(SDIR)/obj/replacement_policy.o $(LDIR)/bin/shared_lib.a
 	$(CC) $(CFLAGS_SERVER) -g $(SDIR)/src/main.c -o $@.out $^ $(LIBS)
 	test -f $(BDIR)/config.txt || $(MAKE) force_generate_config
 
@@ -70,6 +70,9 @@ $(SDIR)/obj/handle_client.o: $(SDIR)/src/handle_client.c
 	$(CC) $(CFLAGS_SERVER) -g -c -o $@ $<
 
 $(SDIR)/obj/logging.o: $(SDIR)/src/logging.c
+	$(CC) $(CFLAGS_SERVER) -g -c -o $@ $<
+
+$(SDIR)/obj/replacement_policy.o: $(SDIR)/src/replacement_policy.c
 	$(CC) $(CFLAGS_SERVER) -g -c -o $@ $<
 
 

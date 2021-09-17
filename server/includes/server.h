@@ -9,10 +9,11 @@
 #include "icl_hash.h"
 #include "logging.h"
 
-#define S_NONE 0
-#define S_SOFT 1
-#define S_FAST 2
-typedef int quit_signal_t;
+typedef enum quit_signal {
+    S_NONE,
+    S_SOFT,
+    S_FAST
+} quit_signal_t;
 
 #define ERR_SOCKET_FAILED -1
 #define ERR_SOCKET_BIND_FAILED -2
@@ -40,6 +41,7 @@ typedef struct file_stored {
     struct timespec creation_time;
     struct timespec last_use_time;
     bool_t can_be_removed;
+    uint32_t use_frequency;
     pthread_mutex_t rw_mutex;
 } file_stored_t;
 
