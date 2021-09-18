@@ -15,20 +15,6 @@ struct file_stored {
     pthread_mutex_t rw_mutex;
 };
 
-file_stored_t* create_file();
-
-// getter and setters
-
-int file_add_client(file_stored_t* file, int client);
-bool_t file_is_opened_by(file_stored_t* file, int client);
-int file_remove_client(file_stored_t* file, int client);
-
-int file_enqueue_lock(file_stored_t* file, int client);
-bool_t file_is_client_already_queued(file_stored_t* file, int client);
-int file_dequeue_lock(file_stored_t* file);
-
-void free_file(file_stored_t* file);
-
 file_stored_t* create_file()
 {
     file_stored_t* file;
@@ -37,7 +23,108 @@ file_stored_t* create_file()
 
     file->locked_by = -1;
     file->opened_by = ll_create();
-    file->lock_queue = 
+    file->lock_queue = create_q();
+    clock_gettime(CLOCK_REALTIME, &file->creation_time);
+    file->last_use_time = file->creation_time;
+    pthread_mutex_init(&file->rw_mutex, NULL);
+
+    return file;
+}
+
+void free_file(file_stored_t* file)
+{
+    free(file->data);
+    ll_free(file->opened_by, free);
+    free_q(file->lock_queue, free);
+}
+
+int file_add_client(file_stored_t* file, int client)
+{
+    RET_IF(!file, -1);
+
+    int* new_client;
+    CHECK_FATAL_EQ(new_client, sizeof(int), NULL, NO_MEM_FATAL);
+    *new_client = client;
+
+    return ll_add_head(file->opened_by, new_client);
+}
+
+bool_t file_is_opened_by(file_stored_t* file, int client)
+{
+    RET_IF(!file, FALSE);
+
+    node_t* curr = ll_get_head_node(file->opened_by);
+    while(curr)
+    {
+        if(*((int*)node_get_value(curr)) == client)
+            break;
+
+        curr = node_get_next(curr);
+    }
+
+    return curr != NULL;
+}
+
+int file_remove_client(file_stored_t* file, int client)
+{
+    RET_IF(!file, -1);
+
+    node_t* curr = ll_get_head_node(file->opened_by);
+    while(curr)
+    {
+        if(*((int*)node_get_value(curr)) == client)
+            break;
+
+        curr = node_get_next(curr);
+    }
+
+    return curr ? ll_remove_node(file->opened_by, curr) : -1;
+}
+
+int file_enqueue_lock(file_stored_t* file, int client)
+{
+    RET_IF(!file, -1);
+
+    int* new_client;
+    CHECK_FATAL_EQ(new_client, sizeof(int), NULL, NO_MEM_FATAL);
+    *new_client = client;
+
+    return enqueue(file->lock_queue, new_client);
+}
+
+bool_t file_is_client_already_queued(file_stored_t* file, int client)
+{
+    RET_IF(!file, -1);
+
+    node_t* curr = get_head_node_q(file->lock_queue);
+    while(curr)
+    {
+        if(*((int*)node_get_value(curr)) == client)
+            break;
+
+        curr = node_get_next(curr);
+    }
+
+    return curr != NULL;
+}
+
+int file_dequeue_lock(file_stored_t* file)
+{
+    RET_IF(!file, -1);
+
+    int* ptr = dequeue(file->lock_queue);
+    int new_client = *ptr;
+    free(ptr);
+
+    return new_client;
+}
+
+uint32_t file_inc_frequency(file_stored_t* file, int step)
+{
+    RET_IF(!file, 0);
+
+    file->use_frequency += step;
+    return file->use_frequency;
 }
 
 char* file_get_data(file_stored_t* file)

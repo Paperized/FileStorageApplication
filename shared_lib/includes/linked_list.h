@@ -7,6 +7,7 @@ typedef struct node node_t;
 typedef struct linked_list linked_list_t;
 
 linked_list_t* ll_create();
+
 size_t ll_count(const linked_list_t* ll);
 int ll_add_head(linked_list_t* ll, void* value);
 int ll_add_tail(linked_list_t* ll, void* value);
@@ -25,11 +26,7 @@ void ll_free(linked_list_t* ll, void (*free_func)(void*));
 void* node_get_value(node_t* node);
 node_t* node_get_next(node_t* node);
 
-/* Integer functions */
-int ll_int_get_max(const linked_list_t* ll);
 int ll_contains_str(const linked_list_t* ll, char* str);
-
-#define INIT_EMPTY_LL { 0, NULL, NULL }
 
 #endif
 

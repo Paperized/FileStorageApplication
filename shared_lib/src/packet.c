@@ -20,9 +20,6 @@ struct packet {
     packet_len cursor_index;
 };
 
-#define CHECK_PACKET2(p) if(p == NULL) return -1
-#define CHECK_PACKET(p) if(p == NULL) return
-
 #define CHECK_READ_BYTES(bytes_read, fd, buf, size, ...) byte_read = readn(fd, buf, size); \
                                                     if(byte_read == -1) \
                                                     { \
@@ -108,7 +105,7 @@ packet_t* read_packet_from_fd(int fd)
 // send the packet to a fd
 int send_packet_to_fd(int fd, packet_t* p)
 {
-    CHECK_PACKET2(p);
+    RET_IF(!p, -1);
 
     int write_result;
     CHECK_ERROR_EQ(write_result, writen(fd, &p->header.op, sizeof(packet_op)), -1, -1, "Cannot write packet_op! fd(%d)", fd);
@@ -121,7 +118,7 @@ int send_packet_to_fd(int fd, packet_t* p)
 // destroy the current packet and free its content
 void destroy_packet(packet_t* p)
 {
-    CHECK_PACKET(p);
+    NRET_IF(!p);
 
     if(p->content)
         free(p->content);
@@ -131,8 +128,7 @@ void destroy_packet(packet_t* p)
 // write a data to a packet based on size and return a status, -1 the packet is null, otherwise it returns the bytes written
 int write_data(packet_t* p, const void* data, size_t size)
 {
-    if(!data || !p)
-        return -1;
+    RET_IF(!data || !p, -1);
     if(size == 0)
         return 1;
 
@@ -163,8 +159,7 @@ int write_data(packet_t* p, const void* data, size_t size)
 // write a string to a packet and return a status, -1 the packet is null, otherwise it returns the bytes written
 int write_data_str(packet_t* p, const char* str, size_t len)
 {
-    if(!p || !str)
-        return -1;
+    RET_IF(!p || !str, -1);
 
     len += 1;
     int res;
@@ -271,7 +266,7 @@ int read_data_str_alloc(packet_t* p, char** str)
 
 int is_packet_valid(packet_t* p)
 {
-    if(!p) return 0;
+    RET_IF(!p, 0);
 
     packet_op op = p->header.op;
     switch (op)
@@ -310,7 +305,7 @@ packet_t* create_packet(packet_op op, ssize_t initial_capacity)
 
 void print_packet(packet_t* p)
 {
-    if(p == NULL) return;
+    NRET_IF(!p);
 
     printf("Packet op: %ul.\n", p->header.op);
     printf("Packet body length: %ul.\n", p->header.len);
@@ -321,42 +316,42 @@ void print_packet(packet_t* p)
 
 int packet_get_remaining_byte_count(packet_t* p)
 {
-    if(!p) return 0;
+    RET_IF(!p, 0);
 
     return p->header.len - p->cursor_index;
 }
 
 packet_op packet_get_op(packet_t* p)
 {
-    if(!p) return OP_UNKNOWN;
+    RET_IF(!p, OP_UNKNOWN);
 
     return p->header.op;
 }
 
 int packet_get_sender(packet_t* p)
 {
-    if(!p) return 0;
+    RET_IF(!p, 0);
 
     return p->header.fd_sender;
 }
 
 packet_len packet_get_length(packet_t* p)
 {
-    if(!p) return 0;
+    RET_IF(!p, 0);
 
     return p->header.len;
 }
 
 void packet_set_op(packet_t* p, packet_op op)
 {
-    if(!p) return;
+    NRET_IF(!p);
 
     p->header.op = op;
 }
 
 void packet_set_sender(packet_t* p, int sender)
 {
-    if(!p) return;
+    NRET_IF(!p);
     
     p->header.fd_sender = sender;
 }

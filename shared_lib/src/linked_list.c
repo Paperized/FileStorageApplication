@@ -15,9 +15,8 @@ struct linked_list {
 
 int malloc_node(node_t** node)
 {
+    RET_IF(!node, -1);
     CHECK_FATAL_ERRNO(*node, malloc(sizeof(node_t)), NO_MEM_FATAL);
-    if(node == NULL)
-        return -1;
     
     (*node)->next = NULL;
     return 0;
@@ -25,13 +24,13 @@ int malloc_node(node_t** node)
 
 void* node_get_value(node_t* node)
 {
-    if(node == NULL) return NULL;
+    RET_IF(!node, NULL);
     return node->value;
 }
 
 node_t* node_get_next(node_t* node)
 {
-    if(node == NULL) return NULL;
+    RET_IF(!node, NULL);
     return node->next;
 }
 
@@ -45,6 +44,8 @@ linked_list_t* ll_create()
 
 size_t ll_count(const linked_list_t* ll)
 {
+    RET_IF(!ll, 0);
+
     return ll->count;
 }
 
@@ -147,34 +148,28 @@ void ll_remove_last(linked_list_t* ll, void** value)
 
 void* ll_get_first(linked_list_t* ll)
 {
-    if(ll->count <= 0)
-    {
-        return NULL;
-    }
+    RET_IF(!ll || ll->count <= 0, NULL);
 
     return ll->head->value;
 }
 
 void* ll_get_last(linked_list_t* ll)
 {
-    if(ll->count <= 0)
-    {
-        return NULL;
-    }
+    RET_IF(!ll || ll->count <= 0, NULL);
 
     return ll->tail->value;
 }
 
 node_t* ll_get_head_node(linked_list_t* ll)
 {
-    if(ll == NULL) return NULL;
+    RET_IF(!ll, NULL);
 
     return ll->head;
 }
 
 int ll_remove_node(linked_list_t* ll, node_t* node)
 {
-    if(ll == NULL || node == NULL) return -1;
+    RET_IF(!ll || !node, -1);
 
     node_t* curr = ll->head;
     node_t* prev = NULL;
@@ -203,7 +198,7 @@ int ll_remove_node(linked_list_t* ll, node_t* node)
 
 void ll_remove_str(linked_list_t* ll, char* str)
 {
-    if(ll == NULL || str == NULL) return;
+    NRET_IF(!ll || !str);
 
     node_t* curr = ll->head;
     node_t* prev = NULL;
@@ -222,27 +217,9 @@ void ll_remove_str(linked_list_t* ll, char* str)
     }
 }
 
-int ll_int_get_max(const linked_list_t* ll)
-{
-    if(ll == NULL) return -1;
-
-    int max = -1;
-    node_t* curr = ll->head;
-    while(curr != NULL)
-    {
-        int new_val = (int)curr->value;
-        if(max < new_val)
-            max = new_val;
-
-        curr = curr->next;
-    }
-
-    return max;
-}
-
 void ll_empty(linked_list_t* ll, void (*free_func)(void*))
 {
-    if(ll == NULL) return;
+    NRET_IF(!ll);
 
     while(ll->count > 0)
     {
@@ -255,7 +232,7 @@ void ll_empty(linked_list_t* ll, void (*free_func)(void*))
 
 void ll_free(linked_list_t* ll, void (*free_func)(void*))
 {
-    if(ll == NULL) return;
+    NRET_IF(!ll);
 
     ll_empty(ll, free_func ? free_func : free);
     free(ll);
@@ -263,6 +240,8 @@ void ll_free(linked_list_t* ll, void (*free_func)(void*))
 
 int ll_contains_str(const linked_list_t* ll, char* str)
 {
+    RET_IF(!ll || !str, 0);
+
     node_t* curr = ll->head;
     while(curr != NULL)
     {

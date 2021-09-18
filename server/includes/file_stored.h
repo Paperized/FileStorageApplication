@@ -30,6 +30,8 @@ int file_dequeue_lock(file_stored_t* file);
 void file_set_lock_owner(file_stored_t* file, int lock_owner);
 void file_set_last_use_time(file_stored_t* file, struct timespec new_use_time);
 
+uint32_t file_inc_frequency(file_stored_t* file, int step);
+
 void free_file(file_stored_t* file);
 
 

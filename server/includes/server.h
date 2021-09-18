@@ -8,6 +8,7 @@
 #include "utils.h"
 #include "icl_hash.h"
 #include "logging.h"
+#include "file_stored.h"
 
 typedef enum quit_signal {
     S_NONE,
@@ -28,18 +29,9 @@ typedef enum quit_signal {
 // GESTIRE SIGINT, SIGQUIT (Chiusura il prima possibile, non accetta nuove richieste e chiude) 
 // e SIGHUP non accetta nuove richieste e finisce con quelle rimanenti
 
-typedef struct file_stored {
-    char* data;
-    size_t size;
-    int locked_by;
-    linked_list_t* opened_by;
-    queue_t* lock_queue;
-    struct timespec creation_time;
-    struct timespec last_use_time;
-    bool_t can_be_removed;
-    uint32_t use_frequency;
-    pthread_mutex_t rw_mutex;
-} file_stored_t;
+typedef struct server {
+    icl_hash_t* files_stored;
+} server_t;
 
 extern pthread_mutex_t files_stored_mutex;
 extern icl_hash_t* files_stored;
