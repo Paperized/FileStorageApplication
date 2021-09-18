@@ -8,7 +8,29 @@
 #include "server.h"
 #include "server_api_utils.h"
 #include "handle_client.h"
-#include "replacement_policy.h"
+
+typedef struct server {
+    int server_socket_id;
+
+    configuration_params_t* config;
+    pthread_mutex_t config_mutex;
+
+    quit_signal_t quit_signal;
+    pthread_mutex_t quit_signal_mutex;
+
+    pthread_cond_t clients_connected_cond;
+    linked_list_t* clients_connected;
+    pthread_mutex_t clients_list_mutex;
+
+    fd_set clients_connected_set;
+    pthread_mutex_t clients_set_mutex;
+
+    queue_t* requests_queue;
+
+    file_system_t* fs;
+} server_t;
+
+static server_t* singleton_server;
 
 #define INITIALIZE_SERVER_FUNCTIONALITY(initializer, status) status = initializer(); \
                                                                 if(status != SERVER_OK) \
@@ -69,58 +91,6 @@ size_t current_used_memory = 0;
 unsigned int workers_count = 0;
 
 int (*server_policy)(file_stored_t* f1, file_stored_t* f2);
-
-void initialize_policy_delegate()
-{
-    // pick a policy, default is fifo
-    char policy[MAX_POLICY_LENGTH];
-    config_get_policy_name(loaded_configuration, policy);
-
-    if(strncmp(policy, "FIFO", 4) == 0)
-        server_policy = replacement_policy_fifo;
-    else if(strncmp(policy, "LRU", 3) == 0)
-        server_policy = replacement_policy_lru;
-    else if(strncmp(policy, "LFU", 3) == 0)
-        server_policy = replacement_policy_lfu;
-    else
-        server_policy = replacement_policy_fifo;
-}
-
-void free_keys_ht(void* key)
-{
-    char* pathname = key;
-    free(pathname);
-}
-
-void free_data_ht(void* key)
-{
-    file_stored_t* file = key;
-    if(file->data)
-        free(file->data);
-
-    pthread_mutex_destroy(&file->rw_mutex);
-
-    free(file);
-}
-
-int get_max_fid_sessions()
-{
-    int max = 0;
-    node_t* curr = ll_get_head_node(clients_connected);
-    if(curr == NULL)
-        return max;
-
-    while(curr != NULL)
-    {
-        client_session_t* session = node_get_value(curr);
-        if(session->fd > max)
-            max = session->fd;
-
-        curr = node_get_next(curr);
-    }
-
-    return max;
-}
 
 quit_signal_t get_quit_signal()
 {
