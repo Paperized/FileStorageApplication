@@ -22,8 +22,7 @@ file_system_t* create_fs(size_t max_capacity)
     fs->files_stored = icl_hash_create(10, NULL, NULL);
     fs->total_memory = max_capacity;
 
-    //wrap this
-    pthread_rwlock_init(&fs->rwlock, NULL);
+    INIT_RWLOCK(&fs->rwlock);
 
     return fs;
 }

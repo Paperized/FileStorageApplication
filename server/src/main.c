@@ -9,7 +9,7 @@ int main()
         return EXIT_FAILURE;
 
     printf("Server config loaded succesfully!\n");
-    print_config_params(loaded_configuration);
+    print_config_params(config);
 
     int status = init_server(config);
     if(status != SERVER_OK)
@@ -18,5 +18,6 @@ int main()
     printf("Server initialized succesfully!\n");
     start_server();
 
+    free_config(config);
     return EXIT_SUCCESS;
 }

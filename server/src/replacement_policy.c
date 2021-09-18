@@ -11,15 +11,15 @@ static int cmp_time(struct timespec* t1, struct timespec* t2)
 
 int replacement_policy_fifo(file_stored_t* f1, file_stored_t* f2)
 {
-    return cmp_time(&f1->creation_time, &f2->creation_time);
+    return cmp_time(file_get_creation_time(f1), file_get_creation_time(f2));
 }
 
 int replacement_policy_lru(file_stored_t* f1, file_stored_t* f2)
 {
-    return cmp_time(&f1->last_use_time, &f2->last_use_time);
+    return cmp_time(file_get_last_use_time(f1), file_get_last_use_time(f2));
 }
 
 int replacement_policy_lfu(file_stored_t* f1, file_stored_t* f2)
 {
-    return f1->use_frequency - f2->use_frequency;
+    return file_get_use_frequency(f1) - file_get_use_frequency(f2);
 }

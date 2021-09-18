@@ -17,5 +17,7 @@ unsigned int config_get_backlog_sockets_num(const configuration_params_t* config
 void config_get_socket_name(const configuration_params_t* config, char output[MAX_PATHNAME_API_LENGTH]);
 void config_get_policy_name(const configuration_params_t* config, char output[MAX_POLICY_LENGTH]);
 
+void free_config(configuration_params_t* config);
+
 
 #endif

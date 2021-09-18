@@ -43,8 +43,7 @@ int file_add_client(file_stored_t* file, int client)
     RET_IF(!file, -1);
 
     int* new_client;
-    CHECK_FATAL_EQ(new_client, sizeof(int), NULL, NO_MEM_FATAL);
-    *new_client = client;
+    MAKE_COPY(new_client, int, client);
 
     return ll_add_head(file->opened_by, new_client);
 }
@@ -86,8 +85,7 @@ int file_enqueue_lock(file_stored_t* file, int client)
     RET_IF(!file, -1);
 
     int* new_client;
-    CHECK_FATAL_EQ(new_client, sizeof(int), NULL, NO_MEM_FATAL);
-    *new_client = client;
+    MAKE_COPY(new_client, int, client);
 
     return enqueue(file->lock_queue, new_client);
 }

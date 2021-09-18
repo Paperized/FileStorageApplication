@@ -47,6 +47,11 @@ configuration_params_t* load_config_params(const char* config_path_name)
     return config;
 }
 
+void free_config(configuration_params_t* config)
+{
+    free(config);
+}
+
 unsigned int config_get_num_workers(const configuration_params_t* config)
 {
     return config->thread_workers;

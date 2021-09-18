@@ -10,6 +10,6 @@ file_system_t* create_fs();
 
 void set_policy_fs(file_system_t* fs, char* policy);
 
-void free_fs();
+void free_fs(file_system_t* fs);
 
 #endif

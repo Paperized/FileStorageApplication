@@ -17,6 +17,7 @@
         "string_view": "c",
         "initializer_list": "c",
         "sstream": "c",
-        "replacement_policy.h": "c"
+        "replacement_policy.h": "c",
+        "typeinfo": "cpp"
     }
 }

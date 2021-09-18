@@ -13,18 +13,19 @@ typedef enum bool { FALSE, TRUE } bool_t;
 
 #define PRINT_FATAL(errno_code, ...) printf(START_RED_CONSOLE "[Fatal] "); \
                             printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+                            printf(" %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
 #define PRINT_ERROR(errno_code, ...) printf(START_RED_CONSOLE "[Error] "); \
                             printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+                            printf(" %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
 #define PRINT_WARNING(errno_code, ...) printf(START_YELLOW_CONSOLE "[Warning] "); \
                             printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+                            printf(" %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
 #define PRINT_INFO(...)     printf("[Info] "); \
-                            printf(__VA_ARGS__)
+                            printf(__VA_ARGS__); \
+                            printf("\n")
   
 #define CHECK_FATAL_ERRNO(var, value, ...) var = value; \
                                             if(errno == ENOMEM) { \
@@ -65,8 +66,13 @@ typedef enum bool { FALSE, TRUE } bool_t;
                                                                         }
 
 #define RET_IF(cond, val) if(cond) return val
-#define NRET_IF(cond) if(cond) return;
+#define NRET_IF(cond) if(cond) return
 
+#define INIT_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_init(m, NULL) != 0, "Mutex init failed!")
+#define INIT_RWLOCK(rw) CHECK_FATAL_EVAL(pthread_rwlock_init(rw, NULL) != 0, "RWLock init failed!")
+#define INIT_COND(cond) CHECK_FATAL_EVAL(pthread_cond_init(cond, NULL) != 0, "Condition variable init failed!")
+
+#define LOCK_RWLOCK(rw) CHECK_FATAL_EVAL(pthread_rwlock_wrlock(rw) != 0, "RWLock lock failed!")
 #define LOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_lock(m) != 0, "Mutex lock failed!")
 
 #define DLOCK_MUTEX(m) LOCK_MUTEX(m); \
@@ -74,6 +80,7 @@ typedef enum bool { FALSE, TRUE } bool_t;
                         printf(".\n")
 
 #define UNLOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_unlock(m) == 0, "Mutex unlock failed!")
+#define UNLOCK_RWLOCK(rw) CHECK_FATAL_EVAL(pthread_rwlock_rdlock(rw) != 0, "RWLock unlock failed!")
 
 #define DUNLOCK_MUTEX(m) UNLOCK_MUTEX(m); \
                         printf("Unlockato in riga: %d in %s Mutex: %s", __LINE__, __FILE__, (char*)#m); \
@@ -82,6 +89,9 @@ typedef enum bool { FALSE, TRUE } bool_t;
 #define COND_SIGNAL(s) CHECK_FATAL_EVAL(pthread_cond_signal(s) != 0, "Condition variable signal failed!")
 #define COND_BROADCAST(s) CHECK_FATAL_EVAL(pthread_cond_broadcast(s) != 0, "Condition variable signal failed!")
 #define COND_WAIT(s, m) CHECK_FATAL_EVAL(pthread_cond_wait(s, m) != 0, "Condition variable wait failed!")
+
+#define MAKE_COPY(name, type, from) CHECK_FATAL_EQ(name, malloc(sizeof(type)), NULL, NO_MEM_FATAL); \
+                                    memcpy(name, &(from), sizeof(type))
 
 #define SET_VAR_MUTEX(var, expr, m)     LOCK_MUTEX(m); \
                                         var = expr; \

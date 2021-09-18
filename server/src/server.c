@@ -25,54 +25,17 @@ typedef struct server {
     fd_set clients_connected_set;
     pthread_mutex_t clients_set_mutex;
 
+    pthread_cond_t request_received_cond;
+    pthread_mutex_t requests_queue_mutex;
     queue_t* requests_queue;
 
     file_system_t* fs;
 } server_t;
 
-static server_t* singleton_server;
-
-#define INITIALIZE_SERVER_FUNCTIONALITY(initializer, status) status = initializer(); \
-                                                                if(status != SERVER_OK) \
-                                                                { \
-                                                                    SET_VAR_MUTEX(quit_signal, S_FAST, &quit_signal_mutex); \
-                                                                    server_wait_for_threads(); \
-                                                                    server_cleanup(); \
-                                                                    return status; \
-                                                                }
-
-#define CHECK_ERROR(boolean, returned_error) if(boolean) return returned_error
-
-#define BREAK_ON_FAST_QUIT(qv, m)  if((qv = get_quit_signal()) == S_FAST) \
-                                    { \
-                                        pthread_mutex_unlock(m); \
-                                        break; \
-                                    }
-
-
-pthread_mutex_t loaded_configuration_mutex = PTHREAD_MUTEX_INITIALIZER;
-configuration_params_t* loaded_configuration;
-int server_socket_id;
+static server_t* singleton_server = NULL;
 
 pthread_mutex_t server_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 logging_t* server_log;
-
-pthread_mutex_t clients_list_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t clients_set_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-pthread_cond_t clients_connected_cond = PTHREAD_COND_INITIALIZER;
-linked_list_t* clients_connected;
-fd_set clients_connected_set;
-
-pthread_cond_t request_received_cond = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t requests_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-queue_t* requests_queue;
-
-pthread_mutex_t quit_signal_mutex = PTHREAD_MUTEX_INITIALIZER;
-quit_signal_t quit_signal = S_NONE;
-
-pthread_mutex_t files_stored_mutex = PTHREAD_MUTEX_INITIALIZER;
-icl_hash_t* files_stored = NULL;
 
 /** VARIABLE STATUS **/
 bool_t socket_initialized = FALSE;
@@ -86,58 +49,69 @@ pthread_t* thread_workers_ids;
 pthread_t thread_accepter_id;
 pthread_t thread_reader_id;
 
-pthread_mutex_t current_used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
-size_t current_used_memory = 0;
 unsigned int workers_count = 0;
 
-int (*server_policy)(file_stored_t* f1, file_stored_t* f2);
+#define INITIALIZE_SERVER_FUNCTIONALITY(initializer, status) status = initializer(); \
+                                                                if(status != SERVER_OK) \
+                                                                { \
+                                                                    SET_VAR_MUTEX(singleton_server->quit_signal, S_FAST, &singleton_server->quit_signal_mutex); \
+                                                                    server_wait_for_threads(); \
+                                                                    server_cleanup(); \
+                                                                    return status; \
+                                                                }
+
+#define BREAK_ON_FAST_QUIT(qv, m)  if((qv = get_quit_signal()) == S_FAST) \
+                                    { \
+                                        UNLOCK_MUTEX(m); \
+                                        break; \
+                                    }
 
 quit_signal_t get_quit_signal()
 {
     quit_signal_t result;
-    GET_VAR_MUTEX(quit_signal, result, &quit_signal_mutex);
+    GET_VAR_MUTEX(singleton_server->quit_signal, result, &singleton_server->quit_signal_mutex);
     return result;
 }
 
 void set_quit_signal(quit_signal_t value)
 {
-    SET_VAR_MUTEX(quit_signal, value, &quit_signal_mutex);
+    SET_VAR_MUTEX(singleton_server->quit_signal, value, &singleton_server->quit_signal_mutex);
 }
 
 void* handle_client_requests(void* data)
 {
     pthread_t curr = pthread_self();
 
-    printf("Running worker thread\n");
+    PRINT_INFO("Running worker thread %lu.", curr);
     quit_signal_t quit_signal;
     while((quit_signal = get_quit_signal()) != S_FAST)
     {
-        LOCK_MUTEX(&requests_queue_mutex);
-        while(count_q(requests_queue) == 0)
+        LOCK_MUTEX(&singleton_server->requests_queue_mutex);
+        while(count_q(singleton_server->requests_queue) == 0)
         {
-            if(pthread_cond_wait(&request_received_cond, &requests_queue_mutex) != 0)
+            if(pthread_cond_wait(&singleton_server->request_received_cond, &singleton_server->requests_queue_mutex) != 0)
             {
-                UNLOCK_MUTEX(&requests_queue_mutex);
+                UNLOCK_MUTEX(&singleton_server->requests_queue_mutex);
                 continue;
             }
 
-            BREAK_ON_FAST_QUIT(quit_signal, &requests_queue_mutex);
+            BREAK_ON_FAST_QUIT(quit_signal, &singleton_server->requests_queue_mutex);
         }
 
         // quit worker loop if signal
         if(quit_signal == S_FAST)
             break;
 
-        packet_t* request = cast_to(packet_t*, dequeue(requests_queue));
-        UNLOCK_MUTEX(&requests_queue_mutex);
+        packet_t* request = (packet_t*)dequeue(singleton_server->requests_queue);
+        UNLOCK_MUTEX(&singleton_server->requests_queue_mutex);
 
         if(request == NULL)
         {
-            printf("[W/%lu]: Request null, skipping.\n", curr);
+            PRINT_WARNING(EINVAL, "[W/%lu] Request null, skipping.", curr);
             continue;
         }
 
-        printf("[W/%lu] Handling client with id: %d.\n", curr, packet_get_sender(request));
+        PRINT_INFO("[W/%lu] Handling client with id %d.", curr, packet_get_sender(request));
 
         int res;
         // Handle the message
@@ -172,19 +146,29 @@ void* handle_client_requests(void* data)
                 break;
 
             default:
-                printf("[W/%lu] Unknown request operation, skipping request.\n", curr);
+                PRINT_INFO("[W/%lu] Unknown request operation, skipping request.", curr);
                 break;
         }
 
-        // IF RES == -1 SEND BACK AN ERROR MESSAGE WITH ERROR TAKEN FROM ERRNO VAR
-        //HANDLE_ERROR(req)
+        if(res == -1)
+        {
+            server_errors_t error = errno;
+            packet_t* err_response = create_packet(OP_ERROR, sizeof(server_errors_t));
+            write_data(err_response, &error, sizeof(server_errors_t));
+            res = send_packet_to_fd(packet_get_sender(request), err_response);
+            if(res == -1)
+            {
+                PRINT_WARNING(errno, "Cannot send error packet to %d!", packet_get_sender(request));
+            }
+            destroy_packet(err_response);
+        }
 
         destroy_packet(request);
-        printf("[W/%lu] Finished handling.\n", curr);
+        PRINT_INFO("[W/%lu] Finished handling.", curr);
     }
 
     // on close
-    printf("Quitting worker.\n");
+    PRINT_INFO("Quitting worker.");
     return NULL;
 }
 
@@ -207,7 +191,7 @@ quit_signal_t server_wait_end_signal()
 
     while((shared_quit_signal = get_quit_signal()) == S_NONE && local_quit_signal == S_NONE)
     {
-        CHECK_ERROR(sigwait(&managed_signals, &last_signal) != 0, S_FAST);
+        CHECK_ERROR_NEQ(error, sigwait(&managed_signals, &last_signal), 0, S_FAST, "Sigwait failed!");
 
         switch(last_signal)
         {
@@ -225,26 +209,26 @@ quit_signal_t server_wait_end_signal()
     if(shared_quit_signal == S_NONE)
     {
         shared_quit_signal = local_quit_signal;
-        SET_VAR_MUTEX(quit_signal, local_quit_signal, &quit_signal_mutex);
+        SET_VAR_MUTEX(singleton_server->quit_signal, local_quit_signal, &singleton_server->quit_signal_mutex);
     }
 
     // debug
     switch(shared_quit_signal)
     {
         case S_NONE:
-            printf("\nQuitting with signal: S_NONE\n");
+            PRINT_INFO("\nQuitting with signal: S_NONE.");
             break;
 
         case S_SOFT:
-            printf("\nQuitting with signal: S_SOFT\n");
+            PRINT_INFO("\nQuitting with signal: S_SOFT.");
             break;
 
         case S_FAST:
-            printf("\nQuitting with signal: S_FAST\n");
+            PRINT_INFO("\nQuitting with signal: S_FAST.");
             break;
 
         default:
-            printf("\nQuitting with signal: ??\n");
+            PRINT_INFO("\nQuitting with signal: ??.");
             break;
     }
 
@@ -253,10 +237,10 @@ quit_signal_t server_wait_end_signal()
 
 int initialize_workers()
 {
-    CHECK_FATAL_EQ(thread_workers_ids, malloc(config_get_num_workers(loaded_configuration) * (sizeof(pthread_t))), NULL, NO_MEM_FATAL);
+    CHECK_FATAL_EQ(thread_workers_ids, malloc(config_get_num_workers(singleton_server->config) * (sizeof(pthread_t))), NULL, NO_MEM_FATAL);
 
     int error;
-    for(int i = 0; i < config_get_num_workers(loaded_configuration); ++i)
+    for(int i = 0; i < config_get_num_workers(singleton_server->config); ++i)
     {
         CHECK_ERROR_NEQ(error, pthread_create(&thread_workers_ids[i], NULL, &handle_client_requests, NULL), 0,
                  ERR_SOCKET_INIT_WORKERS, "Coudln't create the %dth thread!", i);
@@ -273,46 +257,41 @@ void* handle_connections(void* params)
     {
         bool_t add_failed = FALSE;
 
-        PRINT_INFO("Waiting for new connections.\n");
-        int new_id = accept(server_socket_id, NULL, 0);
+        PRINT_INFO("Waiting for new connections.");
+        int new_id = accept(singleton_server->server_socket_id, NULL, 0);
         if(new_id == -1)
             continue;
-
-        // add to queue
-
-        client_session_t* new_client;
-        CHECK_FATAL_EQ(new_client, malloc(sizeof(client_session_t)), NULL, NO_MEM_FATAL);
-        memset(new_client, 0, sizeof(client_session_t));
-        new_client->fd = new_id;
         
-        SET_VAR_MUTEX(add_failed, ll_add_head(clients_connected, new_client) != 0, &clients_list_mutex);
+        int* new_client;
+        MAKE_COPY(new_client, int, new_id);
+        SET_VAR_MUTEX(add_failed, ll_add_head(singleton_server->clients_connected, new_client) != 0, &singleton_server->clients_list_mutex);
 
         // if something go wrong with the queue we close the connection right away
         if(add_failed)
         {
-            PRINT_WARNING(errno, "ll_add_head failed!.\n");
+            PRINT_WARNING(errno, "ll_add_head failed!.");
             free(new_client);
             close(new_id);
 
-            LOCK_MUTEX(&clients_set_mutex);
-            if(FD_ISSET(new_id, &clients_connected_set))
+            LOCK_MUTEX(&singleton_server->clients_set_mutex);
+            if(FD_ISSET(new_id, &singleton_server->clients_connected_set))
             {
-                FD_CLR(new_id, &clients_connected_set);
+                FD_CLR(new_id, &singleton_server->clients_connected_set);
             }
-            UNLOCK_MUTEX(&clients_set_mutex);
+            UNLOCK_MUTEX(&singleton_server->clients_set_mutex);
         }
         else
         {
-            LOCK_MUTEX(&clients_set_mutex);
-            if(!FD_ISSET(new_id, &clients_connected_set))
+            LOCK_MUTEX(&singleton_server->clients_set_mutex);
+            if(!FD_ISSET(new_id, &singleton_server->clients_connected_set))
             {
-                FD_SET(new_id, &clients_connected_set);
+                FD_SET(new_id, &singleton_server->clients_connected_set);
             }
-            UNLOCK_MUTEX(&clients_set_mutex);
+            UNLOCK_MUTEX(&singleton_server->clients_set_mutex);
 
             EXEC_WITH_MUTEX(add_logging_entry(server_log, CLIENT_JOINED, new_id, NULL), &server_log_mutex);
 
-            COND_SIGNAL(&clients_connected_cond);
+            COND_SIGNAL(&singleton_server->clients_connected_cond);
         }
     }
 
@@ -322,7 +301,7 @@ void* handle_connections(void* params)
 int initialize_connection_accepter()
 {
     int error;
-    FD_ZERO(&clients_connected_set);
+    FD_ZERO(&singleton_server->clients_connected_set);
     CHECK_ERROR_NEQ(error, pthread_create(&thread_accepter_id, NULL, &handle_connections, NULL), 0, ERR_SOCKET_INIT_ACCEPTER, THREAD_CREATE_FATAL);
 
     connection_accepter_initialized = TRUE;
@@ -340,75 +319,65 @@ void* handle_clients_packets()
         tv.tv_sec = 0;
         tv.tv_usec = 100000;
 
-        LOCK_MUTEX(&clients_list_mutex);
+        LOCK_MUTEX(&singleton_server->clients_list_mutex);
         size_t n_clients;
-        while((n_clients = ll_count(clients_connected)) == 0)
+        while((n_clients = ll_count(singleton_server->clients_connected)) == 0)
         {
-            COND_WAIT(&clients_connected_cond, &clients_list_mutex);
-
-            BREAK_ON_FAST_QUIT(quit_signal, &clients_list_mutex);
+            COND_WAIT(&singleton_server->clients_connected_cond, &singleton_server->clients_list_mutex);
+            BREAK_ON_FAST_QUIT(quit_signal, &singleton_server->clients_list_mutex);
         }
 
         if(quit_signal == S_FAST)
             break;
 
-        int max_fd_clients = get_max_fid_sessions();
-        UNLOCK_MUTEX(&clients_list_mutex);
+        int max_fd_clients = ll_get_max_int(singleton_server->clients_connected);
+        UNLOCK_MUTEX(&singleton_server->clients_list_mutex);
 
         fd_set current_clients;
-        GET_VAR_MUTEX(clients_connected_set, current_clients, &clients_set_mutex);
+        GET_VAR_MUTEX(singleton_server->clients_connected_set, current_clients, &singleton_server->clients_set_mutex);
 
         int res = select(max_fd_clients + 1, &current_clients, NULL, NULL, &tv);
         if(res <= 0)
             continue;
 
-        LOCK_MUTEX(&clients_list_mutex);
-        node_t* curr_client = ll_get_head_node(clients_connected);
+        LOCK_MUTEX(&singleton_server->clients_list_mutex);
+        node_t* curr_client = ll_get_head_node(singleton_server->clients_connected);
 
         while(curr_client != NULL)
         {
-            client_session_t* curr_session = node_get_value(curr_client);
+            int curr_session = *((int*)node_get_value(curr_client));
 
-            if(FD_ISSET(curr_session->fd, &current_clients))
+            if(FD_ISSET(curr_session, &current_clients))
             {
-                printf("reading packet %d.\n", curr_session->fd);
-                packet_t* req = read_packet_from_fd(curr_session->fd);
+                PRINT_INFO("reading packet %d.", curr_session);
+                packet_t* req = read_packet_from_fd(curr_session);
 
                 if(is_packet_valid(req))
                 {
                     if(packet_get_op(req) == OP_CLOSE_CONN)
                     {
                         // chiudo la connessione
-                        EXEC_WITH_MUTEX(FD_CLR(curr_session->fd, &clients_connected_set), &clients_set_mutex);
+                        EXEC_WITH_MUTEX(FD_CLR(curr_session, &singleton_server->clients_connected_set), &singleton_server->clients_set_mutex);
 
                         node_t* temp = node_get_next(curr_client);
-                        ll_remove_node(clients_connected, curr_client);
-
-                        if(curr_session->prev_file_opened != NULL)
-                            free(curr_session->prev_file_opened);
-                        
-                        while(ll_count(curr_session->files_opened) > 0)
-                        {
-                            ll_remove_last(curr_session->files_opened, NULL);
-                        }
-
+                        ll_remove_node(singleton_server->clients_connected, curr_client);
                         curr_client = temp;
-                        EXEC_WITH_MUTEX(add_logging_entry(server_log, CLIENT_LEFT, curr_session->fd, NULL), &server_log_mutex);
+                        
+                        EXEC_WITH_MUTEX(add_logging_entry(server_log, CLIENT_LEFT, curr_session, NULL), &server_log_mutex);
 
-                        free(curr_session);
                         free(req);
                         continue;
                     }
 
-                    LOCK_MUTEX(&requests_queue_mutex);
+                    LOCK_MUTEX(&singleton_server->requests_queue_mutex);
 
-                    enqueue_m(requests_queue, req);
-                    if(count_q(requests_queue) == 1)
+                    enqueue_m(singleton_server->requests_queue, req);
+                    if(count_q(singleton_server->requests_queue) == 1)
                     {
-                        COND_SIGNAL(&request_received_cond);
+                        COND_SIGNAL(&singleton_server->request_received_cond);
                     }
 
-                    UNLOCK_MUTEX(&requests_queue_mutex);
+                    UNLOCK_MUTEX(&singleton_server->requests_queue_mutex);
                 }
 
                 // we ignore failed packets returned by the read
@@ -416,10 +385,10 @@ void* handle_clients_packets()
 
             curr_client = node_get_next(curr_client);
         }
-        UNLOCK_MUTEX(&clients_list_mutex);
+        UNLOCK_MUTEX(&singleton_server->clients_list_mutex);
     }
 
-    printf("Quitting packet reader.\n");
+    PRINT_INFO("Quitting packet reader.");
     return NULL;
 }
 
@@ -437,7 +406,7 @@ int server_wait_for_threads()
     quit_signal_t closing_signal;
 
     // wait for a closing signal
-    GET_VAR_MUTEX(quit_signal, closing_signal, &quit_signal_mutex);
+    GET_VAR_MUTEX(singleton_server->quit_signal, closing_signal, &singleton_server->quit_signal_mutex);
 
     if(connection_accepter_initialized)
     {
@@ -447,11 +416,10 @@ int server_wait_for_threads()
 
     if(closing_signal == S_FAST)
     {
-        COND_BROADCAST(&request_received_cond);
+        COND_BROADCAST(&singleton_server->request_received_cond);
     }
-        
 
-    printf("Joining workers thread.\n");
+    PRINT_INFO("Joining workers thread.");
     for(int i = 0; i < workers_count; ++i)
     {
         //if(closing_signal == S_FAST)
@@ -463,8 +431,8 @@ int server_wait_for_threads()
     // The thread might be locked in a wait
     if(closing_signal == S_FAST)
     {
-        printf("Joining reader thread.\n");
-        COND_SIGNAL(&clients_connected_cond);
+        PRINT_INFO("Joining reader thread.");
+        COND_SIGNAL(&singleton_server->clients_connected_cond);
         pthread_join(thread_reader_id, NULL);
     }
 
@@ -473,20 +441,27 @@ int server_wait_for_threads()
 
 int server_cleanup()
 {
-    printf("Freeing memory.\n");
+    PRINT_INFO("Freeing memory.");
 
-    icl_hash_destroy(files_stored, free_keys_ht, free_data_ht);
+    free_fs(singleton_server->fs);
+    ll_free(singleton_server->clients_connected, free);
+    free_q(singleton_server->requests_queue, (void(*)(void*))destroy_packet);
     free(thread_workers_ids);
 
-    LOCK_MUTEX(&clients_list_mutex);
-    ll_empty(clients_connected, NULL);
-    UNLOCK_MUTEX(&clients_list_mutex);
+    PRINT_INFO("Closing socket and removing it.");
+    close(singleton_server->server_socket_id);
 
-    printf("Closing socket and removing it.\n");
-    close(server_socket_id);
+    pthread_mutex_destroy(&singleton_server->config_mutex);
+    pthread_mutex_destroy(&singleton_server->quit_signal_mutex);
+    pthread_mutex_destroy(&singleton_server->clients_list_mutex);
+    pthread_mutex_destroy(&singleton_server->clients_set_mutex);
+    pthread_mutex_destroy(&singleton_server->requests_queue_mutex);
+
+    pthread_cond_destroy(&singleton_server->clients_connected_cond);
+    pthread_cond_destroy(&singleton_server->request_received_cond);
 
     char socket_name[MAX_PATHNAME_API_LENGTH];
-    config_get_socket_name(loaded_configuration, socket_name);
+    config_get_socket_name(singleton_server->config, socket_name);
     remove(socket_name);
 
     print_logging(server_log);
@@ -500,10 +475,6 @@ int start_server()
 {
     int lastest_status;
 
-    files_stored = icl_hash_create(10, NULL, NULL);
-    server_log = create_log();
-    initialize_policy_delegate();
-
     // Initialize and run workers
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_workers, lastest_status);
     // Initialize and run connections
@@ -511,7 +482,7 @@ int start_server()
     // Initialize and run reader
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_reader, lastest_status);
 
-    printf("Server started with PID:%d.\n", getpid());
+    PRINT_INFO("Server started with PID:%d.", getpid());
 
     // blocking call, return on quit signal
     server_wait_end_signal();
@@ -522,13 +493,27 @@ int start_server()
 
 int init_server(const configuration_params_t* config)
 {
-    loaded_configuration = (configuration_params_t*)config;
+    INIT_MUTEX(&singleton_server->config_mutex);
+    INIT_MUTEX(&singleton_server->quit_signal_mutex);
+    INIT_MUTEX(&singleton_server->clients_list_mutex);
+    INIT_MUTEX(&singleton_server->clients_set_mutex);
+    INIT_MUTEX(&singleton_server->requests_queue_mutex);
 
-    server_socket_id = socket(AF_UNIX, SOCK_STREAM, 0);
-    CHECK_ERROR_EQ(server_socket_id, socket(AF_UNIX, SOCK_STREAM, 0), -1, ERR_SOCKET_FAILED, "Couldn't initialize socket!");
+    INIT_COND(&singleton_server->clients_connected_cond);
+    INIT_COND(&singleton_server->request_received_cond);
+
+    singleton_server->clients_connected = ll_create();
+    singleton_server->requests_queue = create_q();
+
+    singleton_server->fs = create_fs();
+    server_log = create_log();
+
+    singleton_server->config = (configuration_params_t*)config;
+
+    CHECK_ERROR_EQ(singleton_server->server_socket_id, socket(AF_UNIX, SOCK_STREAM, 0), -1, ERR_SOCKET_FAILED, "Couldn't initialize socket!");
 
     char socket_name[MAX_PATHNAME_API_LENGTH];
-    config_get_socket_name(loaded_configuration, socket_name);
+    config_get_socket_name(singleton_server->config, socket_name);
 
     struct sockaddr_un sa;
     strncpy(sa.sun_path, socket_name, MAX_PATHNAME_API_LENGTH);
@@ -536,10 +521,13 @@ int init_server(const configuration_params_t* config)
 
     remove(socket_name);
 
-    CHECK_ERROR_EQ(server_socket_id, bind(server_socket_id, (struct sockaddr*)&sa,
-                     sizeof(sa)), -1, ERR_SOCKET_BIND_FAILED, "Couldn't bind socket!");
-    CHECK_ERROR_EQ(server_socket_id, listen(server_socket_id, 
-                    config_get_backlog_sockets_num(loaded_configuration)), -1, ERR_SOCKET_LISTEN_FAILED, "Couldn't listen socket!");
+    int error;
+    CHECK_ERROR_EQ(error,
+                    bind(singleton_server->server_socket_id, (struct sockaddr*)&sa, sizeof(sa)), -1,
+                    ERR_SOCKET_BIND_FAILED, "Couldn't bind socket!");
+    CHECK_ERROR_EQ(error,
+                    listen(singleton_server->server_socket_id, config_get_backlog_sockets_num(singleton_server->config)), -1,
+                    ERR_SOCKET_LISTEN_FAILED, "Couldn't listen socket!");
 
     socket_initialized = TRUE;
     return SERVER_OK;

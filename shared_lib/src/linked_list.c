@@ -253,3 +253,20 @@ int ll_contains_str(const linked_list_t* ll, char* str)
 
     return 0; 
 }
+
+int ll_get_max_int(const linked_list_t* ll)
+{
+    RET_IF(!ll || ll->count == 0, -1);
+
+    int max = *((int*)ll->head->value);
+    node_t* curr = ll->head->next;
+    while(!curr)
+    {
+        if(max < *((int*)curr->value))
+            max = *((int*)curr->value);
+
+        curr = curr->next;
+    }
+
+    return max;
+}
