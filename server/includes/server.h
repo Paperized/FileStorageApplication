@@ -28,16 +28,12 @@ typedef enum quit_signal {
 // GESTIRE SIGINT, SIGQUIT (Chiusura il prima possibile, non accetta nuove richieste e chiude) 
 // e SIGHUP non accetta nuove richieste e finisce con quelle rimanenti
 
-typedef struct client_session {
-    int fd;
-    linked_list_t* files_opened;
-    char* prev_file_opened;
-    int prev_flags_file;
-} client_session_t;
-
 typedef struct file_stored {
     char* data;
     size_t size;
+    int locked_by;
+    linked_list_t* opened_by;
+    queue_t* lock_queue;
     struct timespec creation_time;
     struct timespec last_use_time;
     bool_t can_be_removed;
@@ -76,7 +72,6 @@ extern int (*server_policy)(file_stored_t* f1, file_stored_t* f2);
 
 void free_keys_ht(void* key);
 void free_data_ht(void* key);
-
 
 quit_signal_t get_quit_signal();
 void set_quit_signal(quit_signal_t value);

@@ -64,6 +64,8 @@ typedef enum bool { FALSE, TRUE } bool_t;
                                                                             return ret_value; \
                                                                         }
 
+#define RET_IF(cond, val) if(cond) return val
+#define NRET_IF(cond) if(cond) return;
 
 #define LOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_lock(m) != 0, "Mutex lock failed!")
 
