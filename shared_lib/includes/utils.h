@@ -58,8 +58,14 @@ typedef enum bool { FALSE, TRUE } bool_t;
                                                                             PRINT_ERROR(errno_val, __VA_ARGS__); \
                                                                             return ret_value; \
                                                                         }
-                                
+
 #define CHECK_WARNING_EQ_ERRNO(var, value, err, ret_value, errno_val, ...) if((var = value) == err) { \
+                                                                            errno = errno_val; \
+                                                                            PRINT_WARNING(errno_val, __VA_ARGS__); \
+                                                                            return ret_value; \
+                                                                        }
+
+#define CHECK_WARNING_NEQ_ERRNO(var, value, err, ret_value, errno_val, ...) if((var = value) != err) { \
                                                                             errno = errno_val; \
                                                                             PRINT_WARNING(errno_val, __VA_ARGS__); \
                                                                             return ret_value; \
@@ -72,7 +78,10 @@ typedef enum bool { FALSE, TRUE } bool_t;
 #define INIT_RWLOCK(rw) CHECK_FATAL_EVAL(pthread_rwlock_init(rw, NULL) != 0, "RWLock init failed!")
 #define INIT_COND(cond) CHECK_FATAL_EVAL(pthread_cond_init(cond, NULL) != 0, "Condition variable init failed!")
 
-#define LOCK_RWLOCK(rw) CHECK_FATAL_EVAL(pthread_rwlock_wrlock(rw) != 0, "RWLock lock failed!")
+#define WLOCK_RWLOCK(rw) CHECK_FATAL_EVAL(pthread_rwlock_wrlock(rw) != 0, "RWLock Wlock failed!")
+#define RLOCK_RWLOCK(rw) CHECK_FATAL_EVAL(pthread_rwlock_rdlock(rw) != 0, "RWLock Rlock failed!")
+#define UNLOCK_RWLOCK(rw) CHECK_FATAL_EVAL(pthread_rwlock_unlock(rw) != 0, "RWLock unlock failed!")
+
 #define LOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_lock(m) != 0, "Mutex lock failed!")
 
 #define DLOCK_MUTEX(m) LOCK_MUTEX(m); \
@@ -80,7 +89,6 @@ typedef enum bool { FALSE, TRUE } bool_t;
                         printf(".\n")
 
 #define UNLOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_unlock(m) == 0, "Mutex unlock failed!")
-#define UNLOCK_RWLOCK(rw) CHECK_FATAL_EVAL(pthread_rwlock_rdlock(rw) != 0, "RWLock unlock failed!")
 
 #define DUNLOCK_MUTEX(m) UNLOCK_MUTEX(m); \
                         printf("Unlockato in riga: %d in %s Mutex: %s", __LINE__, __FILE__, (char*)#m); \
@@ -92,6 +100,9 @@ typedef enum bool { FALSE, TRUE } bool_t;
 
 #define MAKE_COPY(name, type, from) CHECK_FATAL_EQ(name, malloc(sizeof(type)), NULL, NO_MEM_FATAL); \
                                     memcpy(name, &(from), sizeof(type))
+
+#define MAKE_COPY_BYTES(name, size, from) CHECK_FATAL_EQ(name, malloc(size), NULL, NO_MEM_FATAL); \
+                                            memcpy(name, from, size)
 
 #define SET_VAR_MUTEX(var, expr, m)     LOCK_MUTEX(m); \
                                         var = expr; \

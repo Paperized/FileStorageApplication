@@ -32,7 +32,7 @@ typedef struct server {
     file_system_t* fs;
 } server_t;
 
-static server_t* singleton_server = NULL;
+server_t* singleton_server = NULL;
 
 pthread_mutex_t server_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 logging_t* server_log;
@@ -78,6 +78,11 @@ void set_quit_signal(quit_signal_t value)
     SET_VAR_MUTEX(singleton_server->quit_signal, value, &singleton_server->quit_signal_mutex);
 }
 
+file_system_t* get_fs()
+{
+    return singleton_server->fs;
+}
+
 void* handle_client_requests(void* data)
 {
     pthread_t curr = pthread_self();
@@ -112,37 +117,55 @@ void* handle_client_requests(void* data)
         }
 
         PRINT_INFO("[W/%lu] Handling client with id %d.", curr, packet_get_sender(request));
+        packet_t* res_packet = create_packet(OP_OK, 0);
 
         int res;
         // Handle the message
         switch(packet_get_op(request))
         {
             case OP_OPEN_FILE:
-                res = handle_open_file_req(request, curr);
+                PRINT_INFO("[W/%lu] OP_OPEN_FILE request operation.", curr);
+                res = handle_open_file_req(request, res_packet);
+                break;
+
+            case OP_LOCK_FILE:
+                PRINT_INFO("[W/%lu] OP_LOCK_FILE request operation.", curr);
+                res = handle_lock_file_req(request, res_packet);
+                break;
+
+            case OP_UNLOCK_FILE:
+                PRINT_INFO("[W/%lu] OP_UNLOCK_FILE request operation.", curr);
+                res = handle_unlock_file_req(request, res_packet);
                 break;
 
             case OP_REMOVE_FILE:
-                res = handle_remove_file_req(request, curr);
+                PRINT_INFO("[W/%lu] OP_REMOVE_FILE request operation.", curr);
+                res = handle_remove_file_req(request, res_packet);
                 break;
 
             case OP_WRITE_FILE:
-                res = handle_write_file_req(request, curr);
+                PRINT_INFO("[W/%lu] OP_WRITE_FILE request operation.", curr);
+                res = handle_write_file_req(request, res_packet);
                 break;
 
             case OP_APPEND_FILE:
-                res = handle_append_file_req(request, curr);
+                PRINT_INFO("[W/%lu] OP_APPEND_FILE request operation.", curr);
+                res = handle_append_file_req(request, res_packet);
                 break;
             
             case OP_READ_FILE:
-                res = handle_read_file_req(request, curr);
+                PRINT_INFO("[W/%lu] OP_READ_FILE request operation.", curr);
+                res = handle_read_file_req(request, res_packet);
                 break;
 
             case OP_READN_FILES:
-                res = handle_nread_files_req(request, curr);
+                PRINT_INFO("[W/%lu] OP_READN_FILES request operation.", curr);
+                res = handle_nread_files_req(request, res_packet);
                 break;
 
             case OP_CLOSE_FILE:
-                res = handle_close_file_req(request, curr);
+                PRINT_INFO("[W/%lu] OP_CLOSE_FILE request operation.", curr);
+                res = handle_close_file_req(request, res_packet);
                 break;
 
             default:
@@ -150,20 +173,26 @@ void* handle_client_requests(void* data)
                 break;
         }
 
-        if(res == -1)
+        // res == -1 doesn't send any packet, a future request will take care of this (e.g. locks)
+        if(res > -1)
         {
-            server_errors_t error = errno;
-            packet_t* err_response = create_packet(OP_ERROR, sizeof(server_errors_t));
-            write_data(err_response, &error, sizeof(server_errors_t));
-            res = send_packet_to_fd(packet_get_sender(request), err_response);
+            // if its an errno value
+            if(res != 0)
+            {
+                packet_set_op(res_packet, OP_ERROR);
+                write_data(res_packet, &res, sizeof(int));
+            }
+
+            // send the packet OK/ERROR
+            res = send_packet_to_fd(packet_get_sender(request), res_packet);
             if(res == -1)
             {
-                PRINT_WARNING(errno, "Cannot send error packet to %d!", packet_get_sender(request));
+                PRINT_WARNING(errno, "Cannot send error packet to fd(%d)!", packet_get_sender(request));
             }
-            destroy_packet(err_response);
         }
 
         destroy_packet(request);
+        destroy_packet(res_packet);
         PRINT_INFO("[W/%lu] Finished handling.", curr);
     }
 
@@ -505,7 +534,8 @@ int init_server(const configuration_params_t* config)
     singleton_server->clients_connected = ll_create();
     singleton_server->requests_queue = create_q();
 
-    singleton_server->fs = create_fs();
+    singleton_server->fs = create_fs(config_get_max_server_size(config),
+                                     config_get_max_files_count(config));
     server_log = create_log();
 
     singleton_server->config = (configuration_params_t*)config;

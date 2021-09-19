@@ -3,16 +3,17 @@
 #include <string.h>
 
 struct file_stored {
-    char* data;
-    size_t size;
+    char*    data;
+    size_t   size;
     int locked_by;
     linked_list_t* opened_by;
     queue_t* lock_queue;
     struct timespec creation_time;
     struct timespec last_use_time;
-    bool_t can_be_removed;
+    bool_t   write_enabled;
+    bool_t  can_be_removed;
     uint32_t use_frequency;
-    pthread_mutex_t rw_mutex;
+    pthread_rwlock_t rwlock;
 };
 
 file_stored_t* create_file()
@@ -26,7 +27,8 @@ file_stored_t* create_file()
     file->lock_queue = create_q();
     clock_gettime(CLOCK_REALTIME, &file->creation_time);
     file->last_use_time = file->creation_time;
-    pthread_mutex_init(&file->rw_mutex, NULL);
+    file->use_frequency = 1;
+    INIT_RWLOCK(&file->rwlock);
 
     return file;
 }
@@ -36,6 +38,8 @@ void free_file(file_stored_t* file)
     free(file->data);
     ll_free(file->opened_by, free);
     free_q(file->lock_queue, free);
+
+    pthread_rwlock_destroy(&file->rwlock);
 }
 
 int file_add_client(file_stored_t* file, int client)
@@ -125,6 +129,18 @@ uint32_t file_inc_frequency(file_stored_t* file, int step)
     return file->use_frequency;
 }
 
+void file_set_write_enabled(file_stored_t* file, bool_t is_enabled)
+{
+    NRET_IF(!file);
+    file->write_enabled = is_enabled;
+}
+
+bool_t file_is_write_enabled(file_stored_t* file)
+{
+    RET_IF(!file, FALSE);
+    return file->write_enabled;
+}
+
 char* file_get_data(file_stored_t* file)
 {
     RET_IF(!file, NULL);
@@ -171,5 +187,29 @@ void file_set_last_use_time(file_stored_t* file, struct timespec new_use_time)
 {
     NRET_IF(!file);
     file->last_use_time = new_use_time;
+}
+
+void acquire_read_lock_file(file_stored_t* file)
+{
+    NRET_IF(!file);
+    RLOCK_RWLOCK(&file->rwlock);
+}
+
+void acquire_write_lock_file(file_stored_t* file)
+{
+    NRET_IF(!file);
+    WLOCK_RWLOCK(&file->rwlock);
+}
+
+void release_read_lock_file(file_stored_t* file)
+{
+    NRET_IF(!file);
+    UNLOCK_RWLOCK(&file->rwlock);
+}
+
+void release_write_lock_file(file_stored_t* file)
+{
+    NRET_IF(!file);
+    UNLOCK_RWLOCK(&file->rwlock);
 }
 

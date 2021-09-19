@@ -88,7 +88,7 @@ void send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remain
     while ((dir = readdir(d)) != NULL && (send_all == TRUE || *remaining > 0)) {
         if(dir->d_type != DT_DIR)
         {
-            if(openFile(dir->d_name, OP_LOCK) == -1)
+            if(openFile(dir->d_name, O_LOCK) == -1)
             {
                 printf("Skipping (Open) %s.\n", dir->d_name);
                 continue;
@@ -136,7 +136,7 @@ void send_filenames()
     while(curr != NULL)
     {
         char* curr_filename = node_get_value(curr);
-        if(openFile(curr_filename, OP_CREATE) == -1)
+        if(openFile(curr_filename, O_CREATE) == -1)
         {
             printf("Skipping (Open) %s.\n", curr_filename);
             curr = node_get_next(curr);
@@ -162,7 +162,7 @@ void send_filenames()
 
 void read_file(const char* filename)
 {
-    if(openFile(filename, OP_LOCK) == -1)
+    if(openFile(filename, O_LOCK) == -1)
     {
         printf("Skipping %s.\n", filename);
         return;
@@ -224,7 +224,7 @@ void remove_filenames()
     while(curr != NULL)
     {
         char* curr_filename = node_get_value(curr);
-        if(openFile(curr_filename, OP_LOCK) == -1)
+        if(openFile(curr_filename, O_LOCK) == -1)
         {
             printf("Skipping %s.\n", curr_filename);
             continue;

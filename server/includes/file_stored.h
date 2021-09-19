@@ -29,6 +29,14 @@ int file_dequeue_lock(file_stored_t* file);
 
 void file_set_lock_owner(file_stored_t* file, int lock_owner);
 void file_set_last_use_time(file_stored_t* file, struct timespec new_use_time);
+void file_set_write_enabled(file_stored_t* file, bool_t is_enabled);
+
+bool_t file_is_write_enabled(file_stored_t* file);
+
+void acquire_read_lock_file(file_stored_t* file);
+void acquire_write_lock_file(file_stored_t* file);
+void release_read_lock_file(file_stored_t* file);
+void release_write_lock_file(file_stored_t* file);
 
 uint32_t file_inc_frequency(file_stored_t* file, int step);
 

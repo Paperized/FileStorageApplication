@@ -5,61 +5,89 @@
 #include "server.h"
 #include "handle_client.h"
 
-int handle_open_file_req(packet_t* req, pthread_t curr)
+int handle_open_file_req(packet_t* req, packet_t* response)
 {
-    printf("[W/%lu] OP_OPEN_FILE request operation.\n", curr);
+    int result = 0, error;
     int sender = packet_get_sender(req);
-    int read_result;
     int flags;
-    CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, &flags, sizeof(int)), -1, -1,
+    CHECK_WARNING_EQ_ERRNO(error, read_data(req, &flags, sizeof(int)), -1, EBADF,
                                  EBADF, "Cannot read flags inside packet! fd(%d)", sender);
     char pathname[MAX_PATHNAME_API_LENGTH];
-    CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
+    CHECK_WARNING_EQ_ERRNO(error, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, EBADF,
                                  EBADF, "Cannot read pathname inside packet! fd(%d)", sender);
 
     PRINT_INFO("Pathname %s.", pathname);
 
-    packet_t* response = NULL;
-    server_errors_t error = ERR_NONE;
+    file_system_t* fs = get_fs();
 
-    file_stored_t* file;
-
-    //logic
-
-    if(send_packet_to_fd(sender, response) <= 0)
+    acquire_write_lock_fs(fs);
+    if(flags | O_CREATE)
     {
-        printf("fallito.\n");
+        if(is_file_count_full_fs(fs))
+        {
+            release_write_lock_fs(fs);
+            return EMLINK;
+        }
+
+        file_stored_t* file = find_file_fs(fs, pathname);
+        if(file)
+        {
+            release_write_lock_fs(fs);
+            return EEXIST;
+        }
+
+        file = create_file();
+        if(flags | O_LOCK)
+        {
+            file_set_lock_owner(file, sender);
+            file_set_write_enabled(file, TRUE);
+        }
+
+        if(!add_file_fs(fs, pathname, file))
+        {
+            release_write_lock_fs(fs);
+            free_file(file);
+            return ENOMEM;
+        }
+    }
+    else if(flags | O_LOCK)
+    {
+        file_stored_t* file = find_file_fs(fs, pathname);
+        if(!file)
+        {
+            release_write_lock_fs(fs);
+            return ENOENT;
+        }
+
+        acquire_write_lock_file(file);
+        int owner = file_get_lock_owner(file);
+        if(owner == -1)
+            file_set_lock_owner(file, sender);
+        else if(owner != sender)
+        {
+            file_enqueue_lock(file, sender);
+            result = -1;
+        }
+        release_write_lock_file(file);
     }
 
-    destroy_packet(response);
-    return 1;
+    release_write_lock_fs(fs);
+    return result;
 }
 
-int handle_write_file_req(packet_t* req, pthread_t curr)
+int handle_write_file_req(packet_t* req, packet_t* response)
 {
-    printf("[W/%lu] OP_WRITE_FILE request operation.\n", curr);
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
     CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
                                  EBADF, "Cannot read pathname inside packet! fd(%d)", sender);
 
-    packet_t* response = NULL;
-    server_errors_t error = ERR_NONE;
-
-
-    if(send_packet_to_fd(sender, response) <= 0)
-    {
-        printf("fallito.\n");
-    }
-
-    destroy_packet(response);
-    return 1;
+    return 0;
 }
 
-int handle_append_file_req(packet_t* req, pthread_t curr)
+int handle_append_file_req(packet_t* req, packet_t* response)
 {
-    printf("[W/%lu] OP_APPEND_FILE request operation.\n", curr);
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
@@ -69,45 +97,22 @@ int handle_append_file_req(packet_t* req, pthread_t curr)
     size_t buff_size = 0;
     void* buffer = NULL;
 
-    packet_t* response = NULL;
-    server_errors_t error = ERR_NONE;
-
-    if(send_packet_to_fd(sender, response) <= 0)
-    {
-        printf("fallito.\n");
-    }
-
-    destroy_packet(response);
-    if(buffer)
-        free(buffer);
-    return 1;
+    return 0;
 }
 
-int handle_read_file_req(packet_t* req, pthread_t curr)
+int handle_read_file_req(packet_t* req, packet_t* response)
 {
-    printf("[W/%lu] OP_READ_FILE request operation.\n", curr);
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
     CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
                                  EBADF, "Cannot read pathname inside packet! fd(%d)", sender);
 
-    packet_t* response = NULL;
-    server_errors_t error = ERR_NONE;
-
-
-    if(send_packet_to_fd(sender, response) <= 0)
-    {
-        printf("fallito.\n");
-    }
-
-    destroy_packet(response);
-    return 1;
+    return 0;
 }
 
-int handle_nread_files_req(packet_t* req, pthread_t curr)
+int handle_nread_files_req(packet_t* req, packet_t* response)
 {
-    printf("[W/%lu] OP_NREAD_FILES request operation.\n", curr);
     int sender = packet_get_sender(req);
     int read_result;
     int n_to_read;
@@ -118,56 +123,38 @@ int handle_nread_files_req(packet_t* req, pthread_t curr)
     CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, dirname, MAX_PATHNAME_API_LENGTH), -1, -1,
                                  EBADF, "Cannot read dirname inside packet! fd(%d)", sender);
 
-    packet_t* response = NULL;
-
-    if(send_packet_to_fd(sender, response) <= 0)
-    {
-        printf("fallito.\n");
-    }
-
-    destroy_packet(response);
-    return 1;
+    return 0;
 }
 
-int handle_remove_file_req(packet_t* req, pthread_t curr)
+int handle_remove_file_req(packet_t* req, packet_t* response)
 {
-    printf("[W/%lu] OP_REMOVE_FILE request operation.\n", curr);
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
     CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
                                  EBADF, "Cannot read pathname inside packet! fd(%d)", sender);
 
-    packet_t* response = NULL;
-    server_errors_t error = ERR_NONE;
-
-    if(send_packet_to_fd(sender, response) <= 0)
-    {
-        printf("fallito.\n");
-    }
-
-    destroy_packet(response);
-    return 1;
+    return 0;
 }
 
-int handle_close_file_req(packet_t* req, pthread_t curr)
+int handle_lock_file_req(packet_t* req, packet_t* response)
 {
-    printf("[W/%lu] OP_CLOSE_FILE request operation.\n", curr);
+    return 0;
+}
+
+int handle_unlock_file_req(packet_t* req, packet_t* response)
+{
+    return 0;
+}
+
+int handle_close_file_req(packet_t* req, packet_t* response)
+{
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
     CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
                                  EBADF, "Cannot read pathname inside packet! fd(%d)", sender);
 
-    packet_t* response = NULL;
-    server_errors_t error = ERR_NONE;
- 
 
-    if(send_packet_to_fd(sender, response) <= 0)
-    {
-        printf("fallito.\n");
-    }
-
-    destroy_packet(response);
-    return 1;
+    return 0;
 }

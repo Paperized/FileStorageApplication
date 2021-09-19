@@ -35,7 +35,9 @@ extern pthread_mutex_t server_log_mutex;
 extern logging_t* server_log;
 
 quit_signal_t get_quit_signal();
+file_system_t* get_fs();
 void set_quit_signal(quit_signal_t value);
+
 int init_server(const configuration_params_t* config);
 int start_server();
 
