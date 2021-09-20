@@ -69,6 +69,21 @@ void set_policy_fs(file_system_t* fs, char* policy)
         fs->fs_policy = replacement_policy_fifo;
 }
 
+int is_size_available(file_system_t* fs, size_t size)
+{
+    RET_IF(!fs, 0);
+
+    int remaining = fs->max_memory_size - (int)fs->current_used_memory;
+    return remaining - size;
+}
+
+bool_t is_size_too_big(file_system_t* fs, size_t size)
+{
+    RET_IF(!fs, TRUE);
+
+    return fs->max_memory_size <= size;
+}
+
 size_t get_file_count_fs(file_system_t* fs)
 {
     RET_IF(!fs, 0);

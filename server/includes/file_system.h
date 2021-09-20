@@ -17,6 +17,9 @@ void release_write_lock_fs(file_system_t* fs);
 size_t get_file_count_fs(file_system_t* fs);
 bool_t is_file_count_full_fs(file_system_t* fs);
 
+int is_size_available(file_system_t* fs, size_t size);
+bool_t is_size_too_big(file_system_t* fs, size_t size);
+
 file_stored_t* find_file_fs(file_system_t* fs, const char* pathname);
 int add_file_fs(file_system_t* fs, const char* pathname, file_stored_t* file);
 int remove_file_fs(file_system_t* fs, const char* pathname);

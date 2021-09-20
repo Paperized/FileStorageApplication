@@ -33,6 +33,17 @@ file_stored_t* create_file()
     return file;
 }
 
+int file_replace_content(file_stored_t* file, void* content, size_t content_size)
+{
+    NRET_IF(!file);
+
+    free(file->data);
+    file->data = content;
+    int prev = file->size;
+    file->size = content_size;
+    return prev;
+}
+
 void free_file(file_stored_t* file)
 {
     free(file->data);

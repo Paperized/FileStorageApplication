@@ -161,10 +161,16 @@ int write_data_str(packet_t* p, const char* str, size_t len)
 {
     RET_IF(!p || !str, -1);
 
-    len += 1;
     int res;
-    CHECK_ERROR_EQ(res, write_data(p, str, len), -1, res, "Cannot write string to packet!");
-    p->content[p->header.len - 1] = '\0';
+
+    if(str == NULL)
+        len = 0;
+    CHECK_ERROR_EQ(res, write_data(p, &len, sizeof(size_t)), -1, res, "Cannot write length string to packet!");
+
+    if(str != NULL)
+    {
+        CHECK_ERROR_EQ(res, write_data(p, str, len), -1, res, "Cannot write string to packet!");
+    }
     return res;
 }
 
@@ -178,7 +184,7 @@ int read_data(packet_t* p, void* buf, size_t size)
         return -1;
     }
     if(size == 0)
-        return 1;
+        return 0;
 
     char* current_buffer = p->content;
     packet_len buff_size = p->header.len;
@@ -192,7 +198,7 @@ int read_data(packet_t* p, void* buf, size_t size)
 
     memcpy(buf, (current_buffer + cursor_index), size);
     p->cursor_index = cursor_index + size;
-    return 1;
+    return size;
 }
 
 int read_data_str(packet_t* p, char* str, size_t input_str_length)
@@ -203,28 +209,26 @@ int read_data_str(packet_t* p, char* str, size_t input_str_length)
         return -1;
     }
 
-    char* current_buffer = p->content;
     packet_len buff_size = p->header.len;
     packet_len cursor_index = p->cursor_index;
 
-    size_t current_str_length = 0;
-    size_t next_curs_index;
-    while((next_curs_index = cursor_index + current_str_length) <= buff_size && *(current_buffer + next_curs_index) != '\0')
-        current_str_length += 1;
-
-    // null char
-    current_str_length += 1;
-    next_curs_index += 1;
-    if(next_curs_index > buff_size || *(current_buffer + next_curs_index) != '\0')
+    char* start_string_ptr = p->content + cursor_index + sizeof(size_t);
+    if(start_string_ptr > buff_size)
+    {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    size_t str_len = *((size_t*)(p->content + cursor_index));
+    if(start_string_ptr + str_len > buff_size)
     {
         errno = EOVERFLOW;
         return -1;
     }
 
-    size_t needed_bytes = current_str_length * sizeof(char);
-    memcpy(str, (current_buffer + cursor_index), MIN(input_str_length, needed_bytes));
-    p->cursor_index = cursor_index + current_str_length;
-    return 1;
+    size_t needed_bytes = str_len * sizeof(char);
+    memcpy(str, start_string_ptr, MIN(input_str_length, needed_bytes));
+    p->cursor_index = cursor_index + sizeof(size_t) + str_len;
+    return str_len;
 }
 
 // return a pointer to string read from a packet
@@ -238,30 +242,29 @@ int read_data_str_alloc(packet_t* p, char** str)
         return -1;
     }
 
-    char* current_buffer = p->content;
     packet_len buff_size = p->header.len;
     packet_len cursor_index = p->cursor_index;
 
-    size_t current_str_length = 0;
-    size_t next_curs_index;
-    while((next_curs_index = cursor_index + current_str_length) <= buff_size && *(current_buffer + next_curs_index) != '\0')
-        current_str_length += 1;
-
-    // null char
-    current_str_length += 1;
-    next_curs_index += 1;
-    if(next_curs_index > buff_size || *(current_buffer + next_curs_index) != '\0')
+    char* start_string_ptr = p->content + cursor_index + sizeof(size_t);
+    if(start_string_ptr > buff_size)
+    {
+        errno = EOVERFLOW;
+        *str = NULL;
+        return -1;
+    }
+    size_t str_len = *((size_t*)(p->content + cursor_index));
+    if(start_string_ptr + str_len > buff_size)
     {
         errno = EOVERFLOW;
         *str = NULL;
         return -1;
     }
 
-    size_t needed_bytes = current_str_length * sizeof(char);
+    size_t needed_bytes = str_len * sizeof(char);
     CHECK_FATAL_ERRNO(*str, malloc(needed_bytes), NO_MEM_FATAL);
-    memcpy(*str, (current_buffer + cursor_index), needed_bytes);
-    p->cursor_index = cursor_index + current_str_length;
-    return 1;
+    memcpy(*str, start_string_ptr, needed_bytes);
+    p->cursor_index = cursor_index + sizeof(size_t) + str_len;
+    return str_len;
 }
 
 int is_packet_valid(packet_t* p)
