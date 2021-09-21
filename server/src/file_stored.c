@@ -159,7 +159,7 @@ int file_dequeue_lock(file_stored_t* file)
     RET_IF(!file, -1);
 
     int* ptr = dequeue(file->lock_queue);
-    int new_client = *ptr;
+    int new_client = ptr == NULL ? -1 : *ptr;
     free(ptr);
 
     return new_client;

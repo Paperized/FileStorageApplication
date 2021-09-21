@@ -418,9 +418,25 @@ int handle_close_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
-    CHECK_WARNING_EQ_ERRNO(read_result, read_data_str(req, pathname, MAX_PATHNAME_API_LENGTH), -1, -1,
-                                 EBADF, "Cannot read pathname inside packet! fd(%d)", sender);
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
 
+    file_system_t* fs = get_fs();
+    acquire_write_lock_fs(fs);
+    file_stored_t* file = find_file_fs(fs, pathname);
+    if(!file)
+    {
+        release_write_lock_fs(fs);
+        return ENOENT;
+    }
 
+    acquire_write_lock_file(file);
+    if(file_get_lock_owner(file) == sender)
+    {
+        file_set_lock_owner(file, file_dequeue_lock(file));
+    }
+
+    file_remove_client(file, sender);
+    release_write_lock_file(file);
+    release_write_lock_fs(fs);
     return 0;
 }
