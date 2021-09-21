@@ -85,7 +85,7 @@ bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linke
     }
 
     node_t* removing_node = ll_get_head_node(freed);
-    while(!removing_node)
+    while(removing_node)
     {
         replacement_entry_t* entry = node_get_value(removing_node);
         remove_file_fs(fs, entry->pathname, TRUE);

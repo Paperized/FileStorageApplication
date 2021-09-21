@@ -34,6 +34,7 @@ void file_set_write_enabled(file_stored_t* file, bool_t is_enabled);
 
 bool_t file_is_write_enabled(file_stored_t* file);
 int file_replace_content(file_stored_t* file, void* content, size_t content_size);
+int file_append_content(file_stored_t* file, void* content, size_t content_size);
 
 void acquire_read_lock_file(file_stored_t* file);
 void acquire_write_lock_file(file_stored_t* file);

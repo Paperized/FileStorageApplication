@@ -53,6 +53,17 @@ int file_replace_content(file_stored_t* file, void* content, size_t content_size
     return prev;
 }
 
+int file_append_content(file_stored_t* file, void* content, size_t content_size)
+{
+    NRET_IF(!file);
+
+    CHECK_FATAL_EQ(file->data, realloc(file->data, file->size + content_size), NULL, NO_MEM_FATAL);
+    memcpy(file->data + file->size, content, content_size);
+    int total = file->size + content_size;
+    file->size = content_size;
+    return total;
+}
+
 queue_t* file_get_locks_queue(file_stored_t* file)
 {
     RET_IF(!file, NULL);

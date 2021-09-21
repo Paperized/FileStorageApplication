@@ -149,7 +149,7 @@ int remove_file_fs(file_system_t* fs, const char* pathname, bool_t is_replacemen
     RET_IF(!fs, -1);
     file_stored_t* file = icl_hash_find(fs->files_stored, pathname);
     if(!file)
-        return FALSE;
+        return 0;
 
     size_t data_size = file_get_size(file);
     ll_remove_str(fs->filenames_stored, pathname);
@@ -161,6 +161,13 @@ int remove_file_fs(file_system_t* fs, const char* pathname, bool_t is_replacemen
     }
 
     return res;
+}
+
+int notify_memory_changed_fs(file_system_t* fs, int amount)
+{
+    RET_IF(!fs, 0);
+    fs->current_used_memory += amount;
+    return fs->current_used_memory;
 }
 
 void free_fs(file_system_t* fs)

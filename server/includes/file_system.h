@@ -26,6 +26,7 @@ bool_t is_size_too_big(file_system_t* fs, size_t size);
 file_stored_t* find_file_fs(file_system_t* fs, const char* pathname);
 int add_file_fs(file_system_t* fs, const char* pathname, file_stored_t* file);
 int remove_file_fs(file_system_t* fs, const char* pathname, bool_t keep_data);
+int notify_memory_changed_fs(file_system_t* fs, int amount);
 
 void free_fs(file_system_t* fs);
 

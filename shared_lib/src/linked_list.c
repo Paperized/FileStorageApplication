@@ -277,7 +277,7 @@ int ll_get_max_int(const linked_list_t* ll)
 
     int max = *((int*)ll->head->value);
     node_t* curr = ll->head->next;
-    while(!curr)
+    while(curr)
     {
         if(max < *((int*)curr->value))
             max = *((int*)curr->value);
