@@ -26,6 +26,8 @@ void ll_free(linked_list_t* ll, void (*free_func)(void*));
 void* node_get_value(node_t* node);
 node_t* node_get_next(node_t* node);
 
+void* ll_to_array(linked_list_t* ll);
+
 int ll_contains_str(const linked_list_t* ll, char* str);
 int ll_get_max_int(const linked_list_t* ll);
 

@@ -14,4 +14,6 @@ int handle_lock_file_req(packet_t* req, packet_t* response);
 int handle_unlock_file_req(packet_t* req, packet_t* response);
 int handle_close_file_req(packet_t* req, packet_t* response);
 
+extern packet_t* p_on_file_deleted_locks;
+
 #endif

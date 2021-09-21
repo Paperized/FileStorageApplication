@@ -3,25 +3,28 @@
 #include <string.h>
 
 struct file_stored {
-    char*    data;
-    size_t   size;
-    int locked_by;
+    char* pathname;
+    char*     data;
+    size_t    size;
+    int  locked_by;
     linked_list_t* opened_by;
-    queue_t* lock_queue;
+    queue_t*      lock_queue;
     struct timespec creation_time;
     struct timespec last_use_time;
-    bool_t   write_enabled;
-    bool_t  can_be_removed;
-    uint32_t use_frequency;
+    bool_t    write_enabled;
+    uint32_t  use_frequency;
     pthread_rwlock_t rwlock;
 };
 
-file_stored_t* create_file()
+file_stored_t* create_file(const char* pathname)
 {
     file_stored_t* file;
     CHECK_FATAL_EQ(file, malloc(sizeof(file_stored_t)), NULL, NO_MEM_FATAL);
     memset(file, 0, sizeof(file_stored_t));    
 
+    size_t len = strnlen(pathname, 108);
+    MAKE_COPY_BYTES(file->pathname, len, pathname);
+    
     file->locked_by = -1;
     file->opened_by = ll_create();
     file->lock_queue = create_q();
@@ -31,6 +34,12 @@ file_stored_t* create_file()
     INIT_RWLOCK(&file->rwlock);
 
     return file;
+}
+
+char* file_get_pathname(file_stored_t* file)
+{
+    RET_IF(!file, NULL);
+    return file->pathname;
 }
 
 int file_replace_content(file_stored_t* file, void* content, size_t content_size)
@@ -44,12 +53,25 @@ int file_replace_content(file_stored_t* file, void* content, size_t content_size
     return prev;
 }
 
+queue_t* file_get_locks_queue(file_stored_t* file)
+{
+    RET_IF(!file, NULL);
+    return file->lock_queue;
+}
+
 void free_file(file_stored_t* file)
 {
+    free(file->pathname);
     free(file->data);
     ll_free(file->opened_by, free);
     free_q(file->lock_queue, free);
 
+    pthread_rwlock_destroy(&file->rwlock);
+}
+
+void free_file_for_replacement(file_stored_t* file)
+{
+    ll_free(file->opened_by, free);
     pthread_rwlock_destroy(&file->rwlock);
 }
 

@@ -18,6 +18,9 @@
         "initializer_list": "c",
         "sstream": "c",
         "replacement_policy.h": "c",
-        "typeinfo": "cpp"
+        "typeinfo": "cpp",
+        "random": "cpp",
+        "*.tcc": "c",
+        "memory": "c"
     }
 }

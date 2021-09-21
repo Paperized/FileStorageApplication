@@ -9,9 +9,10 @@
 
 typedef struct file_stored file_stored_t;
 
-file_stored_t* create_file();
+file_stored_t* create_file(const char* pathname);
 
 // getter and setters
+char* file_get_pathname(file_stored_t* file);
 char* file_get_data(file_stored_t* file);
 size_t file_get_size(file_stored_t* file);
 int file_get_lock_owner(file_stored_t* file);
@@ -40,8 +41,10 @@ void release_read_lock_file(file_stored_t* file);
 void release_write_lock_file(file_stored_t* file);
 
 uint32_t file_inc_frequency(file_stored_t* file, int step);
+queue_t* file_get_locks_queue(file_stored_t* file);
 
 void free_file(file_stored_t* file);
+void free_file_for_replacement(file_stored_t* file);
 
 
 #endif

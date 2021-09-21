@@ -230,6 +230,23 @@ void ll_empty(linked_list_t* ll, void (*free_func)(void*))
     }
 }
 
+void* ll_to_array(linked_list_t* ll)
+{
+    RET_IF(!ll, NULL);
+
+    void** array;
+    CHECK_FATAL_EQ(array, malloc(sizeof(void*) * ll->count), NULL, NO_MEM_FATAL);
+    node_t* node = ll->head;
+    int i = 0;
+    while(node)
+    {
+        array[i] = node->value;
+        ++i;
+    }
+
+    return array;
+}
+
 void ll_free(linked_list_t* ll, void (*free_func)(void*))
 {
     NRET_IF(!ll);

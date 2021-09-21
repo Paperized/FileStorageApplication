@@ -476,6 +476,7 @@ int server_cleanup()
     ll_free(singleton_server->clients_connected, free);
     free_q(singleton_server->requests_queue, (void(*)(void*))destroy_packet);
     free(thread_workers_ids);
+    free(p_on_file_deleted_locks);
 
     PRINT_INFO("Closing socket and removing it.");
     close(singleton_server->server_socket_id);
@@ -539,6 +540,10 @@ int init_server(const configuration_params_t* config)
     server_log = create_log();
 
     singleton_server->config = (configuration_params_t*)config;
+    // unique packet used many times
+    p_on_file_deleted_locks = create_packet(OP_ERROR, sizeof(int));
+    int err_packet = EIDRM;
+    write_data(p_on_file_deleted_locks, &err_packet, sizeof(int));
 
     CHECK_ERROR_EQ(singleton_server->server_socket_id, socket(AF_UNIX, SOCK_STREAM, 0), -1, ERR_SOCKET_FAILED, "Couldn't initialize socket!");
 

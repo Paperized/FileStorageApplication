@@ -115,6 +115,14 @@ int send_packet_to_fd(int fd, packet_t* p)
     return 1;
 }
 
+void clear_packet(packet_t* p)
+{
+    NRET_IF(!p);
+
+    p->cursor_index = 0;
+    p->header.len = 0;
+}
+
 // destroy the current packet and free its content
 void destroy_packet(packet_t* p)
 {

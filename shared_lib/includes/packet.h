@@ -14,6 +14,7 @@ typedef struct packet_header packet_header_t;
 typedef struct packet packet_t;
 
 packet_t* create_packet(packet_op op, ssize_t initial_capacity);
+void clear_packet(packet_t* p);
 void destroy_packet(packet_t* p);
 
 packet_t* read_packet_from_fd(int fd);
