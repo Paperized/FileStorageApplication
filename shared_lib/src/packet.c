@@ -220,14 +220,15 @@ int read_data_str(packet_t* p, char* str, size_t input_str_length)
     packet_len buff_size = p->header.len;
     packet_len cursor_index = p->cursor_index;
 
-    char* start_string_ptr = p->content + cursor_index + sizeof(size_t);
-    if(start_string_ptr > buff_size)
+    packet_len len_offset = cursor_index + sizeof(size_t);
+    if(len_offset > buff_size)
     {
         errno = EOVERFLOW;
         return -1;
     }
+    char* start_string_ptr = p->content + len_offset;
     size_t str_len = *((size_t*)(p->content + cursor_index));
-    if(start_string_ptr + str_len > buff_size)
+    if(len_offset + str_len > buff_size)
     {
         errno = EOVERFLOW;
         return -1;
@@ -253,18 +254,17 @@ int read_data_str_alloc(packet_t* p, char** str)
     packet_len buff_size = p->header.len;
     packet_len cursor_index = p->cursor_index;
 
-    char* start_string_ptr = p->content + cursor_index + sizeof(size_t);
-    if(start_string_ptr > buff_size)
+    packet_len len_offset = cursor_index + sizeof(size_t);
+    if(len_offset > buff_size)
     {
         errno = EOVERFLOW;
-        *str = NULL;
         return -1;
     }
+    char* start_string_ptr = p->content + len_offset;
     size_t str_len = *((size_t*)(p->content + cursor_index));
-    if(start_string_ptr + str_len > buff_size)
+    if(len_offset + str_len > buff_size)
     {
         errno = EOVERFLOW;
-        *str = NULL;
         return -1;
     }
 

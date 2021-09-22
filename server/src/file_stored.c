@@ -44,7 +44,7 @@ char* file_get_pathname(file_stored_t* file)
 
 int file_replace_content(file_stored_t* file, void* content, size_t content_size)
 {
-    NRET_IF(!file);
+    RET_IF(!file, 0);
 
     free(file->data);
     file->data = content;
@@ -55,7 +55,7 @@ int file_replace_content(file_stored_t* file, void* content, size_t content_size
 
 int file_append_content(file_stored_t* file, void* content, size_t content_size)
 {
-    NRET_IF(!file);
+    RET_IF(!file, 0);
 
     CHECK_FATAL_EQ(file->data, realloc(file->data, file->size + content_size), NULL, NO_MEM_FATAL);
     memcpy(file->data + file->size, content, content_size);

@@ -13,19 +13,19 @@ typedef enum bool { FALSE, TRUE } bool_t;
 
 #define PRINT_FATAL(errno_code, ...) printf(START_RED_CONSOLE "[Fatal] "); \
                             printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+                            printf(" %s::%s:%d [%s]\r\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
 #define PRINT_ERROR(errno_code, ...) printf(START_RED_CONSOLE "[Error] "); \
                             printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+                            printf(" %s::%s:%d [%s]\r\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
 #define PRINT_WARNING(errno_code, ...) printf(START_YELLOW_CONSOLE "[Warning] "); \
                             printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+                            printf(" %s::%s:%d [%s]\r\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
 #define PRINT_INFO(...)     printf("[Info] "); \
                             printf(__VA_ARGS__); \
-                            printf("\n")
+                            printf("\r\n")
   
 #define CHECK_FATAL_ERRNO(var, value, ...) var = value; \
                                             if(errno == ENOMEM) { \
@@ -86,13 +86,13 @@ typedef enum bool { FALSE, TRUE } bool_t;
 
 #define DLOCK_MUTEX(m) LOCK_MUTEX(m); \
                         printf("Lockato in riga: %d in %s Mutex: %s", __LINE__, __FILE__, (char*)#m); \
-                        printf(".\n")
+                        printf(".\r\n")
 
-#define UNLOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_unlock(m) == 0, "Mutex unlock failed!")
+#define UNLOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_unlock(m) != 0, "Mutex unlock failed!")
 
 #define DUNLOCK_MUTEX(m) UNLOCK_MUTEX(m); \
                         printf("Unlockato in riga: %d in %s Mutex: %s", __LINE__, __FILE__, (char*)#m); \
-                        printf(".\n")
+                        printf(".\r\n")
 
 #define COND_SIGNAL(s) CHECK_FATAL_EVAL(pthread_cond_signal(s) != 0, "Condition variable signal failed!")
 #define COND_BROADCAST(s) CHECK_FATAL_EVAL(pthread_cond_broadcast(s) != 0, "Condition variable signal failed!")

@@ -15,7 +15,7 @@ struct file_system {
     size_t max_file_count;
 };
 
-fs_policy = replacement_policy_fifo;
+int(*fs_policy)(file_stored_t*, file_stored_t*) = replacement_policy_fifo;
 
 file_system_t* create_fs(size_t max_capacity, size_t max_file_count)
 {
@@ -147,12 +147,12 @@ int add_file_fs(file_system_t* fs, const char* pathname, file_stored_t* file)
 int remove_file_fs(file_system_t* fs, const char* pathname, bool_t is_replacement)
 {
     RET_IF(!fs, -1);
-    file_stored_t* file = icl_hash_find(fs->files_stored, pathname);
+    file_stored_t* file = icl_hash_find(fs->files_stored, (char*)pathname);
     if(!file)
         return 0;
 
     size_t data_size = file_get_size(file);
-    ll_remove_str(fs->filenames_stored, pathname);
+    ll_remove_str(fs->filenames_stored, (char*)pathname);
     bool_t res = icl_hash_delete(fs->files_stored, (char*)pathname, free, (void(*)(void*))(is_replacement ? free_file_for_replacement : free_file)) == 0;
     if(res)
     {

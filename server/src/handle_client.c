@@ -8,7 +8,7 @@
 
 #define READ_PATH(byte_read, pk, output, is_mandatory, ...) CHECK_WARNING_EQ_ERRNO(byte_read, read_data_str(pk, output, MAX_PATHNAME_API_LENGTH), -1, EINVAL, EINVAL, __VA_ARGS__); \
                                                         if(is_mandatory && byte_read == 0) { \
-                                                            PRINT_WARNING(EBADMSG, "Mandatory arg! " # __VA_ARGS__); \
+                                                            PRINT_WARNING(EBADMSG, "Mandatory arg! " __VA_ARGS__); \
                                                             errno = EBADMSG; \
                                                             return EBADMSG; \
                                                         }
@@ -16,6 +16,15 @@
 #define RESET_FILE_WRITEMODE(file) file_set_write_enabled(file, FALSE)
 
 packet_t* p_on_file_deleted_locks = NULL;
+packet_t* p_on_file_given_lock = NULL;
+
+static inline void notify_given_lock(int client)
+{
+    if(send_packet_to_fd(client, p_on_file_given_lock) == -1)
+    {
+        PRINT_WARNING(errno, "Couldn't notify client on lock given! fd(%d)", client);
+    }
+}
 
 static inline void notify_file_removed_to_lockers(queue_t* locks_queue)
 {
@@ -66,7 +75,7 @@ static int on_files_replaced(packet_t* response, bool_t are_replaced, bool_t sen
         curr_file = node_get_next(curr_file);
     }
 
-    ll_free(repl_list, free_repl);
+    ll_free(repl_list, FREE_FUNC(free_repl));
     return 1;
 }
 
@@ -178,6 +187,7 @@ int handle_write_file_req(packet_t* req, packet_t* response)
     acquire_read_lock_file(file);
     if(!file_is_write_enabled(file))
     {
+        release_read_lock_file(file);
         release_write_lock_fs(fs);
         free(data);
         return EPERM;
@@ -185,6 +195,7 @@ int handle_write_file_req(packet_t* req, packet_t* response)
 
     if(file_get_lock_owner(file) != sender)
     {
+        release_read_lock_file(file);
         release_write_lock_fs(fs);
         free(data);
         return EACCES;
@@ -192,7 +203,8 @@ int handle_write_file_req(packet_t* req, packet_t* response)
 
     if(is_size_too_big(fs, data_size))
     {
-        release_write_lock_fs(file);
+        release_read_lock_file(file);
+        release_write_lock_fs(fs);
         free(data);
         return EFBIG;
     }
@@ -207,15 +219,19 @@ int handle_write_file_req(packet_t* req, packet_t* response)
         bool_t success = run_replacement_algorithm(pathname, mem_missing, &replaced_files);
         if(!success)
         {
-            release_write_lock_fs(file);
+            release_write_lock_fs(fs);
             free(data);
             return EFBIG;
         }
     }
 
     notify_memory_changed_fs(fs, data_size);
+
+    acquire_write_lock_file(file);
     file_replace_content(file, data, data_size);
     RESET_FILE_WRITEMODE(file);
+    release_write_lock_file(file);
+
     release_write_lock_fs(fs);
 
     on_files_replaced(response, mem_missing > 0, send_back, replaced_files);
@@ -258,6 +274,7 @@ int handle_append_file_req(packet_t* req, packet_t* response)
     int owner = file_get_lock_owner(file);
     if(owner != -1 && owner != sender)
     {
+        release_read_lock_file(file);
         release_write_lock_fs(fs);
         free(data);
         return EACCES;
@@ -265,7 +282,8 @@ int handle_append_file_req(packet_t* req, packet_t* response)
 
     if(is_size_too_big(fs, data_size))
     {
-        release_write_lock_fs(file);
+        release_read_lock_file(file);
+        release_write_lock_fs(fs);
         free(data);
         return EFBIG;
     }
@@ -280,15 +298,19 @@ int handle_append_file_req(packet_t* req, packet_t* response)
         bool_t success = run_replacement_algorithm(pathname, mem_missing, &replaced_files);
         if(!success)
         {
-            release_write_lock_fs(file);
+            release_write_lock_fs(fs);
             free(data);
             return EFBIG;
         }
     }
 
     notify_memory_changed_fs(fs, data_size);
+
+    acquire_write_lock_file(file);
     file_append_content(file, data, data_size);
     RESET_FILE_WRITEMODE(file);
+    release_write_lock_file(file);
+
     release_write_lock_fs(fs);
 
     on_files_replaced(response, mem_missing > 0, send_back, replaced_files);
@@ -300,7 +322,7 @@ int handle_read_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender)
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
 
     file_system_t* fs = get_fs();
 
@@ -313,17 +335,18 @@ int handle_read_file_req(packet_t* req, packet_t* response)
     }
 
     acquire_read_lock_file(file);
-    release_read_lock_fs(fs);
     if(!file_is_opened_by(file, sender))
     {
         release_read_lock_file(file);
+        release_read_lock_fs(fs);
         return EPERM;
     }
 
     int owner = file_get_lock_owner(file);
     if(owner != -1 && owner != sender)
     {
-        release_write_lock_fs(fs);
+        release_read_lock_file(file);
+        release_read_lock_fs(fs);
         return EACCES;
     }
 
@@ -331,6 +354,7 @@ int handle_read_file_req(packet_t* req, packet_t* response)
     if(content_size > 0)
         write_data(response, file_get_data(file), content_size);
     release_read_lock_file(file);
+    release_read_lock_fs(fs);
     return 0;
 }
 
@@ -390,14 +414,17 @@ int handle_remove_file_req(packet_t* req, packet_t* response)
         return ENOENT;
     }
 
+    acquire_read_lock_file(file);
     int owner = file_get_lock_owner(file);
     if(owner == -1 || owner != sender)
-    {
+    {   
+        release_read_lock_fs(fs);
         release_write_lock_fs(fs);
         return EACCES;
     }
 
     notify_file_removed_to_lockers(file_get_locks_queue(file));
+    release_read_lock_file(file);
     remove_file_fs(fs, pathname, FALSE);
     release_write_lock_fs(fs);
     return 0;
@@ -405,11 +432,84 @@ int handle_remove_file_req(packet_t* req, packet_t* response)
 
 int handle_lock_file_req(packet_t* req, packet_t* response)
 {
-    return 0;
+    int sender = packet_get_sender(req);
+    int result = 0;
+    int read_result;
+    char pathname[MAX_PATHNAME_API_LENGTH];
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
+
+    file_system_t* fs = get_fs();
+
+    acquire_write_lock_fs(fs);
+    file_stored_t* file = find_file_fs(fs, pathname);
+    if(!file)
+    {
+        release_write_lock_fs(fs);
+        return ENOENT;
+    }
+
+    acquire_write_lock_file(file);
+    if(!file_is_opened_by(file, sender))
+    {
+        release_write_lock_file(file);
+        release_write_lock_fs(fs);
+        return EPERM;
+    }
+
+    int owner = file_get_lock_owner(file);
+    if(owner == -1)
+    {
+        file_set_lock_owner(file, sender);
+    } else if(owner != sender)
+    {
+        file_enqueue_lock(file, sender);
+        result = -1;
+    }
+
+    release_write_lock_file(file);
+    release_write_lock_fs(fs);
+    return result;
 }
 
 int handle_unlock_file_req(packet_t* req, packet_t* response)
 {
+    int sender = packet_get_sender(req);
+    int read_result;
+    char pathname[MAX_PATHNAME_API_LENGTH];
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
+
+    file_system_t* fs = get_fs();
+
+    acquire_write_lock_fs(fs);
+    file_stored_t* file = find_file_fs(fs, pathname);
+    if(!file)
+    {
+        release_write_lock_fs(fs);
+        return ENOENT;
+    }
+
+    acquire_write_lock_file(file);
+    if(!file_is_opened_by(file, sender))
+    {
+        release_write_lock_file(file);
+        release_write_lock_fs(fs);
+        return EPERM;
+    }
+
+    int owner = file_get_lock_owner(file);
+    if(owner != sender)
+    {
+        release_write_lock_file(file);
+        release_write_lock_fs(fs);
+        return EACCES;
+    }
+
+    int new_owner = file_dequeue_lock(file);
+    file_set_lock_owner(file, new_owner);
+    notify_given_lock(new_owner);
+
+    release_write_lock_file(file);
+    release_write_lock_fs(fs);
     return 0;
 }
 

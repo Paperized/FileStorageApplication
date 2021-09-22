@@ -7,6 +7,8 @@ struct replacement_entry {
     queue_t* notify_lock_queue;
 };
 
+#define FS_POLICY_FUNC ((int(*)(const void*, const void *))fs_policy)
+
 size_t repl_get_data_size(replacement_entry_t* r)
 {
     RET_IF(!r, 0);
@@ -47,7 +49,7 @@ bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linke
 
     file_stored_t** all_files = get_files_stored(fs);
     size_t files_count = get_file_count_fs(fs);
-    qsort(all_files, files_count, sizeof(file_stored_t*), fs_policy);
+    qsort(all_files, files_count, sizeof(file_stored_t*), FS_POLICY_FUNC);
 
     size_t mem_freed = 0;
     int i = 0;
