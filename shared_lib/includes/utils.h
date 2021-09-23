@@ -122,8 +122,7 @@ int read_file_util(const char* pathname, void** buffer, size_t* size);
 int write_file_util(const char* pathname, void* buffer, size_t size);
 int append_file_util(const char* pathname, void* buffer, size_t size);
 
-void extract_dirname_and_filename(const char* fullpath, char** dir, char** fn);
-char* buildpath(char* src1, const char* src2, size_t src1length, size_t src2length);
+int buildpath(char* dest, char* src1, char* src2, size_t src1length, size_t src2length);
 
 #define NO_MEM_FATAL "Cannot allocate more memory!"
 #define THREAD_CREATE_FATAL "Cannot create new thread!"

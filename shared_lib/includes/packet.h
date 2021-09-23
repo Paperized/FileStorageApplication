@@ -3,9 +3,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-
-#define F_CREATE 0
-#define PACKET_EMPTY 0
+#include "network_file.h"
 
 typedef uint32_t packet_op;
 typedef uint32_t packet_len;
@@ -38,5 +36,9 @@ void packet_set_sender(packet_t* p, int sender);
 
 int is_packet_valid(packet_t* p);
 void print_packet(packet_t* p);
+
+/* others */
+int write_netfile(packet_t* p, network_file_t* file);
+int read_netfile(packet_t* p, network_file_t** output);
 
 #endif

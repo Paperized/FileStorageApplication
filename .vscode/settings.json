@@ -21,6 +21,9 @@
         "typeinfo": "cpp",
         "random": "cpp",
         "*.tcc": "c",
-        "memory": "c"
+        "memory": "c",
+        "time.h": "c",
+        "unistd.h": "c",
+        "network_file.h": "c"
     }
 }

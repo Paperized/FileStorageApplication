@@ -37,11 +37,15 @@
 #define READ_PACKET(pk, read_res, data_ptr, size, req) read_res = read_data(pk, data_ptr, size); \
                                             CHECK_READ_PACKET(pk, read_res, req)
 
+#define READ_FILE_PACKET(pk, read_res, file_dptr, req) read_res = read_netfile(pk, file_dptr); \
+                                            CHECK_READ_PACKET(pk, read_res, req)
+
 #define RET_ON_ERROR(req, res) if(packet_get_op(res) == OP_ERROR) \
                                 { \
                                     int read_res; \
                                     server_open_file_options_t err; \
                                     READ_PACKET(res, read_res, &err, sizeof(server_open_file_options_t), req); \
+                                    errno = err; \
                                     CLEANUP_PACKETS(req, res); \
                                     return -1; \
                                 }
@@ -64,8 +68,6 @@
                                             PRINT_WARNING(error, "Cannot receive packet from server!"); \
                                             return -1; \
                                         }
-
-#define WAIT_TIMER {}
 
 int fd_server;
 
@@ -123,12 +125,11 @@ int closeConnection(const char* sockname)
 
 int openFile(const char* pathname, int flags)
 {
-    packet_t* of_packet = create_packet(OP_OPEN_FILE, sizeof(int) + MAX_PATHNAME_API_LENGTH);
+    size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+    packet_t* of_packet = create_packet(OP_OPEN_FILE, sizeof(int) + path_size);
     int error;
     WRITE_PACKET(of_packet, error, &flags, sizeof(int));
-    WRITE_PACKET_STR(of_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
-    
-    print_packet(of_packet);
+    WRITE_PACKET_STR(of_packet, error, pathname, path_size);
 
     SEND_TO_SERVER(of_packet, error);
 
@@ -145,9 +146,10 @@ int openFile(const char* pathname, int flags)
 
 int readFile(const char* pathname, void** buf, size_t* size)
 {
-    packet_t* rf_packet = create_packet(OP_READ_FILE, MAX_PATHNAME_API_LENGTH);
+    size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+    packet_t* rf_packet = create_packet(OP_READ_FILE, path_size);
     int error;
-    WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
+    WRITE_PACKET_STR(rf_packet, error, pathname, path_size);
     
     SEND_TO_SERVER(rf_packet, error);
 
@@ -160,8 +162,8 @@ int readFile(const char* pathname, void** buf, size_t* size)
     int buffer_size = packet_get_remaining_byte_count(res);
     CHECK_FATAL_ERRNO(*buf, malloc(buffer_size), NO_MEM_FATAL);
     READ_PACKET(res, error, *buf, buffer_size, rf_packet);
+    *size = buffer_size;
 
-    // salva su disco
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
@@ -169,18 +171,51 @@ int readFile(const char* pathname, void** buf, size_t* size)
 
 int readNFiles(int N, const char* dirname)
 {
-    packet_t* rf_packet = create_packet(OP_READN_FILES, sizeof(int) + MAX_PATHNAME_API_LENGTH);
+    packet_t* rf_packet = create_packet(OP_READN_FILES, sizeof(int));
     int error;
     WRITE_PACKET(rf_packet, error, &N, sizeof(int));
-    WRITE_PACKET(rf_packet, error, dirname, MAX_PATHNAME_API_LENGTH);
     
     SEND_TO_SERVER(rf_packet, error);
 
     packet_t* res;
     WAIT_UNTIL_RESPONSE(res, rf_packet, error);
-    RET_ON_ERROR(rf_packet, res);
 
-    // salva su disco / leggi risposta
+    RET_ON_ERROR(rf_packet, res);
+    DEBUG_OK(res);
+
+    int num_read;
+    READ_PACKET(res, error, &num_read, sizeof(int), rf_packet);
+    char full_path[MAX_PATHNAME_API_LENGTH + 1];
+
+    for(int i = 0; i < num_read; ++i)
+    {
+        network_file_t* file_received;
+        READ_FILE_PACKET(res, error, &file_received, rf_packet);
+        // salva su disco
+        char* pathname = netfile_get_pathname(file_received);
+        void* data = netfile_get_data(file_received);
+        size_t data_size = netfile_get_data_size(file_received);
+
+        if(pathname)
+        {
+            // save file
+            size_t dirname_len = strnlen(dirname, MAX_PATHNAME_API_LENGTH);
+            size_t filename_len = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+            if(buildpath(full_path, (char*)dirname, pathname, dirname_len, filename_len) == -1)
+            {
+                PRINT_ERROR(errno, "ReadN (Saving) %s exceeded max path length (%zu)!", pathname, dirname_len + filename_len + 1);
+            }
+            else
+            {
+                if(write_file_util(full_path, data, data_size) == -1)
+                {
+                    PRINT_ERROR(errno, "ReadN (Saving) %s failed!", pathname);
+                }
+            }
+        }
+        
+        free(file_received);
+    }
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
@@ -188,10 +223,12 @@ int readNFiles(int N, const char* dirname)
 
 int writeFile(const char* pathname, const char* dirname)
 {
-    packet_t* rf_packet = create_packet(OP_WRITE_FILE, MAX_PATHNAME_API_LENGTH * 2);
+    size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+    packet_t* rf_packet = create_packet(OP_WRITE_FILE, path_size);
     int error;
-    WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
-    WRITE_PACKET_STR(rf_packet, error, dirname, MAX_PATHNAME_API_LENGTH);
+    WRITE_PACKET_STR(rf_packet, error, pathname, path_size);
+    bool_t receive_back_files = dirname != NULL;
+    WRITE_PACKET(rf_packet, error, &receive_back_files, sizeof(bool_t));
 
     SEND_TO_SERVER(rf_packet, error);
 
@@ -201,7 +238,42 @@ int writeFile(const char* pathname, const char* dirname)
     RET_ON_ERROR(rf_packet, res);
     DEBUG_OK(res);
 
-    // salva eventualmente il file espulso su disco
+    if(receive_back_files)
+    {
+        int num_read;
+        READ_PACKET(res, error, &num_read, sizeof(int), rf_packet);
+        char full_path[MAX_PATHNAME_API_LENGTH + 1];
+
+        for(int i = 0; i < num_read; ++i)
+        {
+            network_file_t* file_received;
+            READ_FILE_PACKET(res, error, &file_received, rf_packet);
+            // salva su disco
+            char* pathname_recv = netfile_get_pathname(file_received);
+            void* data = netfile_get_data(file_received);
+            size_t data_size = netfile_get_data_size(file_received);
+
+            if(pathname_recv)
+            {
+                // save file
+                size_t dirname_len = strnlen(dirname, MAX_PATHNAME_API_LENGTH);
+                size_t filename_len = strnlen(pathname_recv, MAX_PATHNAME_API_LENGTH);
+                if(buildpath(full_path, (char*)dirname, pathname_recv, dirname_len, filename_len) == -1)
+                {
+                    PRINT_ERROR(errno, "Write file (Replaced Files) %s exceeded max path length (%zu)!", pathname_recv, dirname_len + filename_len + 1);
+                }
+                else
+                {
+                    if(write_file_util(full_path, data, data_size) == -1)
+                    {
+                        PRINT_ERROR(errno, "Write file (Replaced Files) %s failed!", pathname_recv);
+                    }
+                }
+            }
+
+            free_netfile(file_received);
+        }
+    }
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
@@ -209,10 +281,12 @@ int writeFile(const char* pathname, const char* dirname)
 
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname)
 {
-    packet_t* rf_packet = create_packet(OP_APPEND_FILE, size + MAX_PATHNAME_API_LENGTH * 2);
+    size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+    packet_t* rf_packet = create_packet(OP_APPEND_FILE, size + path_size);
     int error;
     WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
-    WRITE_PACKET_STR(rf_packet, error, dirname, MAX_PATHNAME_API_LENGTH);
+    bool_t receive_back_files = dirname != NULL;
+    WRITE_PACKET(rf_packet, error, &receive_back_files, sizeof(bool_t));
     WRITE_PACKET(rf_packet, error, buf, size);
 
     SEND_TO_SERVER(rf_packet, error);
@@ -223,7 +297,42 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     RET_ON_ERROR(rf_packet, res);
     DEBUG_OK(res);
 
-    // salva eventualmente i file esplulsi dal server
+    if(receive_back_files)
+    {
+        int num_read;
+        READ_PACKET(res, error, &num_read, sizeof(int), rf_packet);
+        char full_path[MAX_PATHNAME_API_LENGTH + 1];
+        
+        for(int i = 0; i < num_read; ++i)
+        {
+            network_file_t* file_received;
+            READ_FILE_PACKET(res, error, &file_received, rf_packet);
+            // salva su disco
+            char* pathname_recv = netfile_get_pathname(file_received);
+            void* data = netfile_get_data(file_received);
+            size_t data_size = netfile_get_data_size(file_received);
+
+            if(pathname_recv)
+            {
+                // save file
+                size_t dirname_len = strnlen(dirname, MAX_PATHNAME_API_LENGTH);
+                size_t filename_len = strnlen(pathname_recv, MAX_PATHNAME_API_LENGTH);
+                if(buildpath(full_path, (char*)dirname, pathname_recv, dirname_len, filename_len) == -1)
+                {
+                    PRINT_ERROR(errno, "Write file (Replaced Files) %s exceeded max path length (%zu)!", pathname_recv, dirname_len + filename_len + 1);
+                }
+                else
+                {
+                    if(write_file_util(full_path, data, data_size) == -1)
+                    {
+                        PRINT_ERROR(errno, "Write file (Replaced Files) %s failed!", pathname_recv);
+                    }
+                }
+            }
+
+            free_netfile(file_received);
+        }
+    }
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
@@ -231,9 +340,10 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 
 int closeFile(const char* pathname)
 {
-    packet_t* rf_packet = create_packet(OP_CLOSE_FILE, MAX_PATHNAME_API_LENGTH);
+    size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+    packet_t* rf_packet = create_packet(OP_CLOSE_FILE, path_size);
     int error;
-    WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
+    WRITE_PACKET_STR(rf_packet, error, pathname, path_size);
 
     SEND_TO_SERVER(rf_packet, error);
 
@@ -242,8 +352,6 @@ int closeFile(const char* pathname)
 
     RET_ON_ERROR(rf_packet, res);
     DEBUG_OK(res);
-
-    // controlla la risposta
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
@@ -251,9 +359,10 @@ int closeFile(const char* pathname)
 
 int removeFile(const char* pathname)
 {
-    packet_t* rf_packet = create_packet(OP_REMOVE_FILE, MAX_PATHNAME_API_LENGTH);
+    size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+    packet_t* rf_packet = create_packet(OP_REMOVE_FILE, path_size);
     int error;
-    WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
+    WRITE_PACKET_STR(rf_packet, error, pathname, path_size);
 
     SEND_TO_SERVER(rf_packet, error);
 
@@ -263,7 +372,43 @@ int removeFile(const char* pathname)
     RET_ON_ERROR(rf_packet, res);
     DEBUG_OK(res);
 
-    // controllo risposta
+    CLEANUP_PACKETS(rf_packet, res);
+    return 0;
+}
+
+int lockFile(const char* pathname)
+{
+    size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+    packet_t* rf_packet = create_packet(OP_LOCK_FILE, path_size);
+    int error;
+    WRITE_PACKET_STR(rf_packet, error, pathname, path_size);
+
+    SEND_TO_SERVER(rf_packet, error);
+
+    packet_t* res;
+    WAIT_UNTIL_RESPONSE(res, rf_packet, error);
+
+    RET_ON_ERROR(rf_packet, res);
+    DEBUG_OK(res);
+
+    CLEANUP_PACKETS(rf_packet, res);
+    return 0;
+}
+
+int unlockFile(const char* pathname)
+{
+    size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+    packet_t* rf_packet = create_packet(OP_UNLOCK_FILE, path_size);
+    int error;
+    WRITE_PACKET_STR(rf_packet, error, pathname, path_size);
+
+    SEND_TO_SERVER(rf_packet, error);
+
+    packet_t* res;
+    WAIT_UNTIL_RESPONSE(res, rf_packet, error);
+
+    RET_ON_ERROR(rf_packet, res);
+    DEBUG_OK(res);
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;

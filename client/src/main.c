@@ -13,6 +13,7 @@
 void print_help();
 void send_filenames();
 void read_file(const char* filename);
+int send_file(char* pathname, char* dirname);
 void read_filenames();
 void read_n_files();
 void remove_filenames();
@@ -23,16 +24,17 @@ int main(int argc, char **argv)
 {
     init_client_params(&g_params);
 
-    int error = read_args_client_params(argc, argv, g_params);
-    if(error != 0)
+    int error =read_args_client_params(argc, argv, g_params);
+    if(error == -1)
     {
-        printf("Missing params or invalid params!.\n");
-        return 0;
+        free_client_params(g_params);
+        PRINT_FATAL(EINVAL, "Couldn't read the config commands correctly!");
+        return EXIT_FAILURE;
     }
-
     if(client_is_print_help(g_params))
     {
         print_help();
+        free_client_params(g_params);
         return 0;
     }
 
@@ -40,7 +42,7 @@ int main(int argc, char **argv)
     if(check_prerequisited(g_params) == -1)
     {
         free_client_params(g_params);
-        return 0;
+        return EXIT_FAILURE;
     }
 
     struct timespec t;
@@ -49,66 +51,45 @@ int main(int argc, char **argv)
     int connected = openConnection(socket_name, 1, t);
     if(connected != 0)
     {
-        printf("couldnt connect to the server.\n");
+        free_client_params(g_params);
+        PRINT_FATAL(errno, "Couldn't connect to host!");
+        return 0;
     }
-    else
+
+    PRINT_INFO("Connected to server!");
+
+    send_filenames();
+    send_file_inside_dirs();
+
+    read_filenames();
+    read_n_files();
+
+    remove_filenames();
+
+    int closed = closeConnection(socket_name);
+    if(closed == -1)
     {
-        printf("connected to server.\n");
-
-        send_filenames();
-        send_file_inside_dirs();
-
-        read_filenames();
-        read_n_files();
-
-        remove_filenames();
-
-        int closed = closeConnection(socket_name);
-        if(closed != 0)
-            printf("error during closeConnection.\n");
-        else
-            printf("connection closed.\n");
+        PRINT_ERROR(errno, "Problems during close connection!");
     }
 
     free_client_params(g_params);
     return 0;
 }
 
-void send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remaining)
+int send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remaining)
 {
     DIR* d;
     struct dirent *dir;
 
-    if ((d = opendir(dirname)) == NULL)
-    {
-        printf("Dir %s couldnt be opened.\n", dirname);
-        return;
-    }
+    CHECK_ERROR_EQ(d, opendir(dirname), NULL, -1, "Recursive send files cannot opendir %s!", dirname);
+    char* dirname_replaced_files = client_dirname_replaced_files(g_params);
 
     while ((dir = readdir(d)) != NULL && (send_all == TRUE || *remaining > 0)) {
         if(dir->d_type != DT_DIR)
         {
-            if(openFile(dir->d_name, O_LOCK) == -1)
-            {
-                printf("Skipping (Open) %s.\n", dir->d_name);
-                continue;
-            }
-
-            if(writeFile(dir->d_name, NULL) == -1)
-            {
-                printf("Skipping (Write) %s.\n", dir->d_name);
+            bool_t success = send_file(dir->d_name, dirname_replaced_files) != -1;
+            if(success)
                 *remaining -= 1;
-                closeFile(dir->d_name);
-                continue;
-            }
-
-            *remaining -= 1;
-
-            if(closeFile(dir->d_name) == -1)
-            {
-                printf("Skipping (Close) %s.\n", dir->d_name);
-                continue;
-            }
         }
         else if(strcmp(dir->d_name,".") != 0 && strcmp(dir->d_name,"..") != 0)
         {
@@ -117,12 +98,13 @@ void send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remain
     }
 
     closedir(d);
+    return 1;
 }
 
 void send_file_inside_dirs()
 {
     node_t* curr_dir = ll_get_head_node(client_dirname_file_sendable(g_params));
-    while(curr_dir != NULL)
+    while(curr_dir)
     {
         string_int_pair_t* value = node_get_value(curr_dir);
         int remaining = pair_get_int(value);
@@ -132,79 +114,97 @@ void send_file_inside_dirs()
 
 void send_filenames()
 {
+    char* dirname = client_dirname_replaced_files(g_params);
     node_t* curr = ll_get_head_node(client_file_list_sendable(g_params));
-    while(curr != NULL)
+    while(curr)
     {
         char* curr_filename = node_get_value(curr);
-        if(openFile(curr_filename, O_CREATE) == -1)
-        {
-            printf("Skipping (Open) %s.\n", curr_filename);
-            curr = node_get_next(curr);
-            continue;
-        }
-
-        if(writeFile(curr_filename, NULL) == -1)
-        {
-            printf("Skipping (Write) %s.\n", curr_filename);
-            closeFile(curr_filename);
-            curr = node_get_next(curr);
-            continue;
-        }
-
-        if(closeFile(curr_filename) == -1)
-        {
-            printf("Skipping (Close) %s.\n", curr_filename);
-        }
+        send_file(curr_filename, dirname);
 
         curr = node_get_next(curr);
     }
 }
 
+int send_file(char* pathname, char* dirname)
+{
+    int result = API_CALL(openFile(pathname, O_CREATE | O_LOCK));
+    if(result == -1)
+    {
+        PRINT_WARNING(errno, "Write file (Open) %s failed!", pathname);
+        return -1;
+    }
+
+    int did_write = API_CALL(writeFile(pathname, dirname));
+    if(did_write == -1)
+    {
+        PRINT_WARNING(errno, "Write file (Write) %s failed!", pathname);
+    }
+
+    result = API_CALL(closeFile(pathname));
+    if(result == -1)
+    {
+        PRINT_WARNING(errno, "Write file (Close) %s failed!", pathname);
+    }
+
+    return did_write;
+}
+
 void read_file(const char* filename)
 {
-    if(openFile(filename, O_LOCK) == -1)
+    int result = API_CALL(openFile(filename, 0));
+    if(result == -1)
     {
-        printf("Skipping %s.\n", filename);
+        PRINT_WARNING(errno, "Read file (Open) %s failed!", filename);
         return;
     }
 
     void* buffer;
     size_t buffer_size;
-    if(readFile(filename, &buffer, &buffer_size) == -1)
+    int has_read = API_CALL(readFile(filename, &buffer, &buffer_size));
+    if(has_read == -1)
     {
-        printf("Skipping %s.\n", filename);
-        closeFile(filename);
-        return;
+        PRINT_WARNING(errno, "Read file (Read) %s failed!", filename);
     }
 
+    result = API_CALL(closeFile(filename));
+    if(result == -1)
+    {
+        PRINT_WARNING(errno, "Read file (Close) %s failed!", filename);
+    }
+
+    if(has_read == -1)
+        return;
+
     char* dirname_readed_files = client_dirname_readed_files(g_params);
-    if(dirname_readed_files != NULL)
+    if(dirname_readed_files)
     {
         // save file
-        char *dirname, *fname;
-        extract_dirname_and_filename(filename, &dirname, &fname);
-
-        char* newpath_built = buildpath(dirname_readed_files, fname, strlen(dirname_readed_files), strlen(fname));
-        if(write_file_util(newpath_built, buffer, buffer_size) == -1)
+        size_t dirname_len = strnlen(dirname_readed_files, MAX_PATHNAME_API_LENGTH);
+        size_t filename_len = strnlen(filename, MAX_PATHNAME_API_LENGTH);
+        char* full_path;
+        CHECK_FATAL_EQ(full_path, malloc(sizeof(char) * (dirname_len + filename_len + 1)), NULL, NO_MEM_FATAL);
+        if(buildpath(full_path, dirname_readed_files, (char*)filename, dirname_len, filename_len) == -1)
         {
-            printf("Couldnt save file: %s in dir: %s.\n", fname, dirname_readed_files);
+            PRINT_ERROR(errno, "Read file (Saving) %s exceeded max path length (%zu)!", filename, dirname_len + filename_len + 1);
+        }
+        else
+        {
+            if(write_file_util(full_path, buffer, buffer_size) == -1)
+            {
+                PRINT_ERROR(errno, "Read file (Saving) %s failed!", filename);
+            }
         }
         
-        free(newpath_built);
+        free(full_path);
     }
 
     free(buffer);
-
-    if(closeFile(filename) == -1)
-    {
-        printf("Skipping %s.\n", filename);
-    }
 }
 
 void read_filenames()
 {
     node_t* curr = ll_get_head_node(client_file_list_readable(g_params));
-    while(curr != NULL)
+    while(curr)
     {
         char* curr_filename = node_get_value(curr);
         read_file(curr_filename);
@@ -221,20 +221,27 @@ void read_n_files()
 void remove_filenames()
 {
     node_t* curr = ll_get_head_node(client_file_list_removable(g_params));
-    while(curr != NULL)
+    while(curr)
     {
         char* curr_filename = node_get_value(curr);
-        if(openFile(curr_filename, O_LOCK) == -1)
+
+        int result = API_CALL(openFile(curr_filename, O_LOCK));
+        if(result == -1)
         {
-            printf("Skipping %s.\n", curr_filename);
+            PRINT_WARNING(errno, "Remove file (Open) %s failed!", curr_filename);
+            curr = node_get_next(curr);
             continue;
         }
 
-        if(removeFile(curr_filename) == -1)
+        result = API_CALL(removeFile(curr_filename));
+        if(result == -1)
         {
-            printf("Skipping %s.\n", curr_filename);
-            closeFile(curr_filename);
-            continue;
+            PRINT_WARNING(errno, "Remove file (Remove) %s failed!", curr_filename);
+            result = API_CALL(closeFile(curr_filename));
+            if(result == -1)
+            {
+                PRINT_WARNING(errno, "Remove file (Close) %s failed!", curr_filename);
+            }
         }
 
         curr = node_get_next(curr);
@@ -244,14 +251,17 @@ void remove_filenames()
 void print_help()
 {
     // hf:w:W:r:R:d:l:u:c:p
-    printf("-h print all commands available\n");
-    printf("-f pathname, socket file pathname to the server\n");
-    printf("-w dirname[,n=0], dirname in which N files will be wrote to the server (n=0 means all)\n");
-    printf("-W file1[,file2], which files will be wrote to the server separated by a comma\n");
-    printf("-r file1[,file2], which files will be readed to the server separated by a comma\n");
-    printf("-R [n=0], read N numbers of files stored inside the server (n=0 means all)\n");
-    printf("-d dirname, dirname in which every file reader with -r -R flags will be saved, can only be used with those flags.\n");
-    printf("-t time, time between every request-response from the server\n");
-    printf("-c file1[,file2], which files will be removed from the server separated by a comma (if they exists)\n");
-    printf("-p enable log of each operation\n");
+    PRINT_INFO(
+            "-h print all commands available\n"
+            "-f pathname, socket file pathname to the server\n"
+            "-w dirname[,n=0], dirname in which N files will be wrote to the server (n=0 means all)\n"
+            "-W file1[,file2], which files will be wrote to the server separated by a comma\n"
+            "-r file1[,file2], which files will be readed to the server separated by a comma\n"
+            "-R [n=0], read N numbers of files stored inside the server (n=0 means all)\n"
+            "-d dirname, dirname in which every file reader with -r -R flags will be saved, can only be used with those flags.\n"
+            "-t time, time between every request-response from the server\n"
+            "-c file1[,file2], which files will be removed from the server separated by a comma (if they exists)\n"
+            "-l file1[,file2], which files will be removed from the server separated by a comma (if they exists)\n"
+            "-u file1[,file2], which files will be removed from the server separated by a comma (if they exists)\n"
+            "-p enable log of each operation\n");
 }

@@ -24,13 +24,6 @@ typedef enum server_open_file_options {
     O_LOCK = 2
 } server_open_file_options_t;
 
-    //ERR_NONE = 0,
-    //ERR_FILE_ALREADY_EXISTS = EEXIST,
-    //ERR_PATH_NOT_EXISTS = ENOENT,
-    //ERR_FILE_NOT_OPEN = EACCES,
-    //ERR_FILE_TOO_BIG = EFBIG,
-    //ERR_NO_MEMORY = ENOMEM
-
 #define MAX_PATHNAME_API_LENGTH 108
 
 #endif

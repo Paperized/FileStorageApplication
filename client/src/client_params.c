@@ -16,11 +16,14 @@ struct client_params {
 
     int num_file_readed;
     char* dirname_readed_files;
+    char* dirname_replaced_files;
 
     linked_list_t* dirname_file_sendable;
     linked_list_t* file_list_sendable;
     linked_list_t* file_list_readable;
     linked_list_t* file_list_removable;
+    linked_list_t* file_list_lockable;
+    linked_list_t* file_list_unlockable;
 
     int ms_between_requests;
     bool_t print_operations;
@@ -44,8 +47,11 @@ void init_client_params(client_params_t** params)
     (*params)->file_list_removable = ll_create();
     (*params)->file_list_readable = ll_create();
     (*params)->dirname_file_sendable = ll_create();
+    (*params)->file_list_lockable = ll_create();
+    (*params)->file_list_unlockable = ll_create();
 
     (*params)->dirname_readed_files = NULL;
+    (*params)->dirname_replaced_files = NULL;
 
     (*params)->ms_between_requests = 0;
     (*params)->print_operations = FALSE;
@@ -63,8 +69,11 @@ void free_client_params(client_params_t* params)
     ll_free(params->file_list_sendable, free);
     ll_free(params->file_list_readable, free);
     ll_free(params->file_list_removable, free);
+    ll_free(params->file_list_lockable, free);
+    ll_free(params->file_list_unlockable, free);
     ll_free(params->dirname_file_sendable, free_pair);
     free(params->dirname_readed_files);
+    free(params->dirname_replaced_files);
     free(params);
 }
 
@@ -76,7 +85,6 @@ void tokenize_filenames_into_ll(char* str, linked_list_t* ll)
     char* file_name = strtok_r(str, COMMA, &save_ptr);
     if(file_name == NULL) return;
     
-    file_name = realpath(file_name, NULL);
     if(ll_add_tail(ll, file_name) != 0)
     {
         printf("Error adding %s to linked list during params read.\n", file_name);
@@ -84,8 +92,6 @@ void tokenize_filenames_into_ll(char* str, linked_list_t* ll)
 
     while((file_name = strtok_r(NULL, COMMA, &save_ptr)) != NULL)
     {
-        file_name = realpath(file_name, NULL);
-
         if(ll_add_tail(ll, file_name) != 0)
         {
             printf("Error adding %s to linked list during params read.\n", file_name);
@@ -104,8 +110,8 @@ void tokenize_dirname_sendable_into_ll(char* str, linked_list_t* ll)
     int n = atoi(n_str);
     if(n >= 0)
     {
-        string_int_pair_t* new_dir = malloc(sizeof(string_int_pair_t));
-        file_name = realpath(file_name, NULL);
+        string_int_pair_t* new_dir;
+        CHECK_FATAL_EQ(new_dir, malloc(sizeof(string_int_pair_t)), NULL, NO_MEM_FATAL);
         new_dir->str_value = file_name;
         new_dir->int_value = n;
         if(ll_add_tail(ll, new_dir) != 0)
@@ -116,8 +122,16 @@ void tokenize_dirname_sendable_into_ll(char* str, linked_list_t* ll)
     }
 }
 
+char* client_dirname_replaced_files(client_params_t* params)
+{
+    RET_IF(!params, NULL);
+    return params->dirname_replaced_files;
+}
+
 int read_args_client_params(int argc, char** argv, client_params_t* params)
 {
+    RET_IF(!params, -1);
+
     char* save_ptr;
     char* n;
     int c;
@@ -156,13 +170,14 @@ int read_args_client_params(int argc, char** argv, client_params_t* params)
             params->dirname_readed_files = realpath(strtok_r(optarg, COMMA, &save_ptr), NULL);
             break;
         case 'D':
-            printf("-D option not implemented!.\n");
+            BREAK_ON_NULL(optarg);
+            params->dirname_replaced_files = realpath(strtok_r(optarg, COMMA, &save_ptr), NULL);
             break;
         case 'l':
-            printf("-l option not implemented!.\n");
+            tokenize_filenames_into_ll(optarg, params->file_list_lockable);
             break;
         case 'u':
-            printf("-u option not implemented!.\n");
+            tokenize_filenames_into_ll(optarg, params->file_list_unlockable);
             break;
         case 't':
             BREAK_ON_NULL(optarg);
@@ -188,7 +203,7 @@ int check_prerequisited(client_params_t* params)
 {
     if(strnlen(params->server_socket_name, MAX_PATHNAME_API_LENGTH) == 0)
     {
-        printf("Socket name cannot be empty, please use -f flag!.\n");
+        PRINT_FATAL(ENXIO, "Socket name cannot be empty, please use -f flag!");
         return -1;
     }
 
@@ -345,9 +360,45 @@ void print_params(client_params_t* params)
     printf("-R Number files readable from server: %d.\n", params->num_file_readed);
 
     printf("-d Dirname files stored (after reading them): %s.\n", params->dirname_readed_files == NULL ? "NULL" : params->dirname_readed_files);
+    printf("-D Dirname files stored (after replacement): %s.\n", params->dirname_replaced_files == NULL ? "NULL" : params->dirname_replaced_files);
 
     printf("-t Time between operation completed (in milliseconds): %d.\n", params->ms_between_requests);
+    printf("-l Filenames lockable: ");
+    if(ll_count(params->file_list_lockable) == 0)
+        printf("NONE.\n");
+    else
+    {
+        node_t* curr = ll_get_head_node(params->file_list_lockable);
+        while(curr != NULL)
+        {
+            char* filename = node_get_value(curr);
+            printf("%s", filename);
+            curr = node_get_next(curr);
 
+            if(curr != NULL)
+                printf(", ");
+        }
+
+        printf(".\n");
+    }
+    printf("-u Filenames unlockable: ");
+    if(ll_count(params->file_list_unlockable) == 0)
+        printf("NONE.\n");
+    else
+    {
+        node_t* curr = ll_get_head_node(params->file_list_unlockable);
+        while(curr != NULL)
+        {
+            char* filename = node_get_value(curr);
+            printf("%s", filename);
+            curr = node_get_next(curr);
+
+            if(curr != NULL)
+                printf(", ");
+        }
+
+        printf(".\n");
+    }
     printf("-c Filenames removable: ");
     if(ll_count(params->file_list_removable) == 0)
         printf("NONE.\n");

@@ -5,6 +5,7 @@
 #include "server.h"
 #include "replacement_policy.h"
 #include "handle_client.h"
+#include "network_file.h"
 
 #define READ_PATH(byte_read, pk, output, is_mandatory, ...) CHECK_WARNING_EQ_ERRNO(byte_read, read_data_str(pk, output, MAX_PATHNAME_API_LENGTH), -1, EINVAL, EINVAL, __VA_ARGS__); \
                                                         if(is_mandatory && byte_read == 0) { \
@@ -45,8 +46,15 @@ static inline void notify_file_removed_to_lockers(queue_t* locks_queue)
 
 static int on_files_replaced(packet_t* response, bool_t are_replaced, bool_t send_back, linked_list_t* repl_list)
 {
-    RET_IF(!are_replaced, 1);
-    RET_IF(!response || !repl_list, -1);
+    int num_files_replaced = 0;
+    RET_IF(!response, -1);
+    if(!are_replaced)
+    {
+        if(send_back)
+            write_data(response, &num_files_replaced, sizeof(int));
+        return 1;
+    }
+    RET_IF(!repl_list, -1);
 
     if(send_back)
     {
@@ -57,25 +65,16 @@ static int on_files_replaced(packet_t* response, bool_t are_replaced, bool_t sen
 
     while(curr_file)
     {
-        replacement_entry_t* file = node_get_value(curr_file);
-        notify_file_removed_to_lockers(repl_get_locks_queue(file));
+        network_file_t* file = node_get_value(curr_file);
+        notify_file_removed_to_lockers(netfile_get_locks_queue(file));
 
         if(send_back)
-        {
-            char* filename_replaced = repl_get_pathname(file);
-            size_t len_filename = strnlen(filename_replaced, MAX_PATHNAME_API_LENGTH);
-            size_t data_size = repl_get_data_size(file);
-            void* data = repl_get_data(file);
-
-            write_data_str(response, filename_replaced, len_filename);
-            write_data(response, &data_size, sizeof(size_t));
-            write_data(response, data, data_size);
-        }
+            write_netfile(response, file);
 
         curr_file = node_get_next(curr_file);
     }
 
-    ll_free(repl_list, FREE_FUNC(free_repl));
+    ll_free(repl_list, FREE_FUNC(free_netfile));
     return 1;
 }
 
@@ -368,6 +367,7 @@ int handle_nread_files_req(packet_t* req, packet_t* response)
     bool_t read_all = n_to_read <= 0;
 
     file_system_t* fs = get_fs();
+    network_file_t* sent_file = create_netfile();
 
     acquire_read_lock_fs(fs);
     file_stored_t** files = get_files_stored(fs);
@@ -381,18 +381,15 @@ int handle_nread_files_req(packet_t* req, packet_t* response)
     {
         file_stored_t* curr_file = files[files_readed];
         acquire_read_lock_file(curr_file);
-        char* curr_pathname = file_get_pathname(curr_file);
-        size_t curr_pathlen = strnlen(curr_pathname, MAX_PATHNAME_API_LENGTH);
-        write_data_str(response, curr_pathname, curr_pathlen);
-        size_t curr_data_size = file_get_size(curr_file);
-        write_data(response, &curr_data_size, sizeof(size_t));
-        if(curr_data_size > 0)
-            write_data(response, file_get_data(curr_file), curr_data_size);
+        netfile_set_pathname(sent_file, file_get_pathname(curr_file));
+        netfile_set_data(sent_file, file_get_data(curr_file), file_get_size(curr_file));
+        write_netfile(response, sent_file);
         release_read_lock_file(curr_file);
         --files_readed;
     }
-
     release_read_lock_fs(fs);
+
+    free(sent_file);
     free(files);
     return 0;
 }

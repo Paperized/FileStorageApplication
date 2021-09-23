@@ -275,6 +275,53 @@ int read_data_str_alloc(packet_t* p, char** str)
     return str_len;
 }
 
+int write_netfile(packet_t* op, network_file_t* file)
+{
+    RET_IF(!op || !file, -1);
+    char* pathname = netfile_get_pathname(file);
+    void* data = netfile_get_data(file);
+    size_t data_size = netfile_get_data_size(file);
+
+    int result;
+    CHECK_ERROR_EQ(result, write_data_str(op, pathname, strnlen(pathname, MAX_PATHNAME_API_LENGTH)),
+         -1, -1, "Cannot write pathname string to packet!");
+    CHECK_ERROR_EQ(result, write_data(op, &data_size, sizeof(size_t)),
+         -1, -1, "Cannot write data_size size_t to packet!");
+    CHECK_ERROR_EQ(result, write_data(op, &data, data_size),
+         -1, -1, "Cannot write data to packet!");
+
+    return 1;
+}
+
+int read_netfile(packet_t* op, network_file_t** output)
+{
+    RET_IF(!op || !output, -1);
+    char pathname[MAX_PATHNAME_API_LENGTH];
+    size_t data_size;
+    void* data;
+
+    int result;
+    CHECK_ERROR_EQ(result, read_data_str(op, pathname, MAX_PATHNAME_API_LENGTH), -1, -1, "Cannot read pathname string from packet!");
+    CHECK_ERROR_EQ(result, read_data(op, &data_size, sizeof(size_t)), -1, -1, "Cannot read data_size size_t from packet!");
+
+    CHECK_FATAL_EQ(data, malloc(data_size), NULL, NO_MEM_FATAL);
+    result = read_data(op, data, data_size);
+    if(result == -1)
+    {
+        PRINT_ERROR(errno, "Cannot read data from packer!");
+        free(data);
+        *output = NULL;
+        return -1;
+    }
+
+    char* pathname_alloc;
+    MAKE_COPY_BYTES(pathname_alloc, strnlen(pathname, MAX_PATHNAME_API_LENGTH), pathname);
+    *output = create_netfile();
+    netfile_set_pathname(*output, pathname_alloc);
+    netfile_set_data(*output, data, data_size);
+    return 1;
+}
+
 int is_packet_valid(packet_t* p)
 {
     RET_IF(!p, 0);

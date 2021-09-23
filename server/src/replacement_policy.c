@@ -1,46 +1,7 @@
 #include "replacement_policy.h"
-
-struct replacement_entry {
-    char* pathname;
-    void* data;
-    size_t data_size;
-    queue_t* notify_lock_queue;
-};
+#include "network_file.h"
 
 #define FS_POLICY_FUNC ((int(*)(const void*, const void *))fs_policy)
-
-size_t repl_get_data_size(replacement_entry_t* r)
-{
-    RET_IF(!r, 0);
-    return r->data_size;
-}
-
-void* repl_get_data(replacement_entry_t* r)
-{
-    RET_IF(!r, NULL);
-    return r->data;
-}
-
-queue_t* repl_get_locks_queue(replacement_entry_t* r)
-{
-    RET_IF(!r, NULL);
-    return r->notify_lock_queue;
-}
-
-char* repl_get_pathname(replacement_entry_t* r)
-{
-    RET_IF(!r, NULL);
-    return r->pathname;
-}
-
-void free_repl(replacement_entry_t* r)
-{
-    NRET_IF(!r);
-
-    free(r->pathname);
-    free(r->data);
-    free_q(r->notify_lock_queue, free);
-}
 
 bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linked_list_t** output)
 {
@@ -65,12 +26,10 @@ bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linke
         queue_t* locks_queue = file_get_locks_queue(curr);
         void* data = file_get_data(curr);
 
-        replacement_entry_t* entry;
-        CHECK_FATAL_EQ(entry, malloc(sizeof(replacement_entry_t)), NULL, NO_MEM_FATAL);
-        entry->pathname = curr_pathname;
-        entry->data = data;
-        entry->data_size = curr_size;
-        entry->notify_lock_queue = locks_queue;
+        network_file_t* entry = create_netfile();
+        netfile_set_pathname(entry, curr_pathname);
+        netfile_set_data(entry, data, curr_size);
+        netfile_set_locks_queue(entry, locks_queue);
 
         ll_add_tail(freed, entry);
         mem_freed += curr_size;
@@ -89,8 +48,8 @@ bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linke
     node_t* removing_node = ll_get_head_node(freed);
     while(removing_node)
     {
-        replacement_entry_t* entry = node_get_value(removing_node);
-        remove_file_fs(fs, entry->pathname, TRUE);
+        network_file_t* entry = node_get_value(removing_node);
+        remove_file_fs(fs, netfile_get_pathname(entry), TRUE);
     }
 
     free(all_files);
