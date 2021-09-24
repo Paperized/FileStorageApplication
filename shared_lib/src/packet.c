@@ -239,7 +239,9 @@ int read_data_str(packet_t* p, char* str, size_t input_str_length)
     }
 
     size_t needed_bytes = str_len * sizeof(char);
-    memcpy(str, start_string_ptr, MIN(input_str_length, needed_bytes));
+    size_t min_char = MIN(input_str_length, needed_bytes);
+    memcpy(str, start_string_ptr, min_char);
+    str[min_char] = '\0';
     p->cursor_index = cursor_index + sizeof(size_t) + str_len;
     return str_len;
 }
@@ -272,9 +274,10 @@ int read_data_str_alloc(packet_t* p, char** str)
         return -1;
     }
 
-    size_t needed_bytes = str_len * sizeof(char);
-    CHECK_FATAL_ERRNO(*str, malloc(needed_bytes), NO_MEM_FATAL);
+    size_t needed_bytes = (str_len) * sizeof(char);
+    CHECK_FATAL_ERRNO(*str, malloc(needed_bytes + 1), NO_MEM_FATAL);
     memcpy(*str, start_string_ptr, needed_bytes);
+    (*str)[needed_bytes] = '\0';
     p->cursor_index = cursor_index + sizeof(size_t) + str_len;
     return str_len;
 }
@@ -300,12 +303,12 @@ int write_netfile(packet_t* op, network_file_t* file)
 int read_netfile(packet_t* op, network_file_t** output)
 {
     RET_IF(!op || !output, -1);
-    char pathname[MAX_PATHNAME_API_LENGTH];
+    char pathname[MAX_PATHNAME_API_LENGTH + 1];
     size_t data_size;
     void* data;
 
-    int result;
-    CHECK_ERROR_EQ(result, read_data_str(op, pathname, MAX_PATHNAME_API_LENGTH), -1, -1, "Cannot read pathname string from packet!");
+    int str_len, result;
+    CHECK_ERROR_EQ(str_len, read_data_str(op, pathname, MAX_PATHNAME_API_LENGTH), -1, -1, "Cannot read pathname string from packet!");
     CHECK_ERROR_EQ(result, read_data(op, &data_size, sizeof(size_t)), -1, -1, "Cannot read data_size size_t from packet!");
 
     CHECK_FATAL_EQ(data, malloc(data_size), NULL, NO_MEM_FATAL);
@@ -319,7 +322,7 @@ int read_netfile(packet_t* op, network_file_t** output)
     }
 
     char* pathname_alloc;
-    MAKE_COPY_BYTES(pathname_alloc, strnlen(pathname, MAX_PATHNAME_API_LENGTH), pathname);
+    MAKE_COPY_BYTES(pathname_alloc, str_len + 1, pathname);
     *output = create_netfile();
     netfile_set_pathname(*output, pathname_alloc);
     netfile_set_data(*output, data, data_size);

@@ -60,8 +60,9 @@ int buildpath(char* dest, char* src1, char* src2, size_t src1length, size_t src2
         return -1;
     }
 
-    strncat(dest, src1, src1length);
-    dest[src1length] = '/';
-    strncat(dest + src1length + 1, src2, src2length);
+    memcpy(dest, src1, src1length);
+    dest[src1length + 1] = '/';
+    memcpy(dest + src1length + 2, src2, src2length);
+    dest[src1length + src2length + 2] = '\0';
     return 1;
 }

@@ -7,7 +7,7 @@
 struct client_params {
     bool_t print_help;
 
-    char server_socket_name[MAX_PATHNAME_API_LENGTH];
+    char server_socket_name[MAX_PATHNAME_API_LENGTH + 1];
 
     int num_file_readed;
     char* dirname_readed_files;
@@ -28,8 +28,7 @@ struct client_params {
 
 #define BREAK_ON_NULL(p) if(p == NULL) break
 
-const char const_comma = ',';
-#define COMMA &const_comma
+#define COMMA ","
 
 client_params_t* g_params = NULL;
 
@@ -74,15 +73,25 @@ void tokenize_filenames_into_ll(char* str, linked_list_t* ll)
     char* save_ptr;
 
     char* file_name = strtok_r(str, COMMA, &save_ptr);
+    size_t filename_size;
     if(file_name == NULL) return;
     
-    if(ll_add_tail(ll, file_name) != 0)
+    char* malloc_str;
+    filename_size = strnlen(file_name, MAX_PATHNAME_API_LENGTH);
+    MAKE_COPY_BYTES(malloc_str, filename_size + 1, file_name);
+    malloc_str[filename_size] = '\0';
+
+    if(ll_add_tail(ll, malloc_str) != 0)
     {
         printf("Error adding %s to linked list during params read.\n", file_name);
     }
 
     while((file_name = strtok_r(NULL, COMMA, &save_ptr)) != NULL)
     {
+        filename_size = strnlen(file_name, MAX_PATHNAME_API_LENGTH);
+        MAKE_COPY_BYTES(malloc_str, filename_size + 1, file_name);
+        malloc_str[filename_size] = '\0';
+
         if(ll_add_tail(ll, file_name) != 0)
         {
             printf("Error adding %s to linked list during params read.\n", file_name);
@@ -120,6 +129,8 @@ int read_args_client_params(int argc, char** argv, client_params_t* params)
                 break;
 
             strncpy(params->server_socket_name, optarg, MAX_PATHNAME_API_LENGTH);
+            size_t end = strnlen(optarg, MAX_PATHNAME_API_LENGTH);
+            params->server_socket_name[end] = '\0';
             break;
         case 'w':
             BREAK_ON_NULL(optarg);

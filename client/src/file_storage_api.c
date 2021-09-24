@@ -88,20 +88,44 @@ packet_t* wait_response_from_server(int* error)
     return read_packet_from_fd(fd_server);
 }
 
+static int msleep(long msec)
+{
+    struct timespec ts;
+    int res;
+
+    if (msec < 0)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    ts.tv_sec = msec / 1000;
+    ts.tv_nsec = (msec % 1000) * 1000000;
+
+    do {
+        res = nanosleep(&ts, &ts);
+    } while (res && errno == EINTR);
+
+    return res;
+}
+
 int openConnection(const char* sockname, int msec, const struct timespec abstime)
 {
-    int remaining_ms = (abstime.tv_sec + abstime.tv_nsec / 1000000000) - time(0);
     CHECK_ERROR_EQ(fd_server, socket(AF_UNIX, SOCK_STREAM, 0), -1, -1, "Cannot connect to server!");
+    long remaining_msec = (abstime.tv_sec * 1000 + abstime.tv_nsec / 1000000000) - time(0) * 1000;
 
     struct sockaddr_un sa;
     strncpy(sa.sun_path, sockname, MAX_PATHNAME_API_LENGTH);
     sa.sun_family = AF_UNIX;
 
     int result_socket;
-    while(remaining_ms > 0 && (result_socket = connect(fd_server, (struct sockaddr*)&sa, sizeof(sa))) == -1)
+    while(remaining_msec > 0 && (result_socket = connect(fd_server, (struct sockaddr*)&sa, sizeof(sa))) == -1)
     {
-        remaining_ms -= msec;
-        sleep(msec);
+        remaining_msec -= msec;
+        if(msleep(msec) == -1)
+        {
+            return -1;
+        }
     }
 
     return result_socket;

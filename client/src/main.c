@@ -51,7 +51,6 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    return 0;
     struct timespec timeout = { time(0) + 5, 0 };
     int interval = 400;
     char* socket_name = client_get_socket_name(g_params);

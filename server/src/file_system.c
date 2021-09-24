@@ -112,7 +112,7 @@ size_t get_file_count_fs(file_system_t* fs)
 bool_t is_file_count_full_fs(file_system_t* fs)
 {
     RET_IF(!fs, TRUE);
-    return ((int)fs->max_file_count - (int)fs->current_file_count) > 0;
+    return ((int)fs->max_file_count - (int)fs->current_file_count) <= 0;
 }
 
 file_stored_t* find_file_fs(file_system_t* fs, const char* pathname)
