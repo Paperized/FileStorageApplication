@@ -7,9 +7,9 @@
 #include "handle_client.h"
 #include "network_file.h"
 
-#define READ_PATH(byte_read, pk, output, is_mandatory, ...) CHECK_WARNING_EQ_ERRNO(byte_read, read_data_str(pk, output, MAX_PATHNAME_API_LENGTH), -1, EINVAL, EINVAL, __VA_ARGS__); \
+#define READ_PATH(byte_read, pk, output, is_mandatory, message, ...) CHECK_WARNING_EQ_ERRNO(byte_read, read_data_str(pk, output, MAX_PATHNAME_API_LENGTH), -1, EINVAL, EINVAL, message, __VA_ARGS__); \
                                                         if(is_mandatory && byte_read == 0) { \
-                                                            PRINT_WARNING(EBADMSG, "Mandatory arg! " __VA_ARGS__); \
+                                                            PRINT_WARNING(EBADMSG, "Mandatory arg! " message, __VA_ARGS__); \
                                                             errno = EBADMSG; \
                                                             return EBADMSG; \
                                                         }
@@ -23,7 +23,7 @@ static inline void notify_given_lock(int client)
 {
     if(send_packet_to_fd(client, p_on_file_given_lock) == -1)
     {
-        PRINT_WARNING(errno, "Couldn't notify client on lock given! fd(%d)", client);
+        PRINT_WARNING(errno, "Couldn't notify client on lock given! fd(%d)", ARGS(client));
     }
 }
 
@@ -37,7 +37,7 @@ static inline void notify_file_removed_to_lockers(queue_t* locks_queue)
         int client_fd = *((int*)node_get_value(curr));
         if(send_packet_to_fd(client_fd, p_on_file_deleted_locks) == -1)
         {
-            PRINT_WARNING(errno, "Couldn't notify client locker on file removed! fd(%d)", client_fd);
+            PRINT_WARNING(errno, "Couldn't notify client locker on file removed! fd(%d)", ARGS(client_fd));
         }
 
         curr = node_get_next(curr);
@@ -84,9 +84,9 @@ int handle_open_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int flags;
     CHECK_WARNING_EQ_ERRNO(error, read_data(req, &flags, sizeof(int)), -1, EBADMSG,
-                                 EBADMSG, "Cannot read flags inside packet! fd(%d)", sender);
+                                 EBADMSG, "Cannot read flags inside packet! fd(%d)", ARGS(sender));
     char pathname[MAX_PATHNAME_API_LENGTH];
-    READ_PATH(error, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
+    READ_PATH(error, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
 
     PRINT_INFO("Pathname %s.", pathname);
 
@@ -156,10 +156,10 @@ int handle_write_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
     bool_t send_back;
     CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, &send_back, sizeof(bool_t)), -1, EBADMSG,
-                                 EBADMSG, "Cannot read 'send back' inside packet! fd(%d)", sender);
+                                 EBADMSG, "Cannot read 'send back' inside packet! fd(%d)", ARGS(sender));
 
     int data_size = packet_get_remaining_byte_count(req);
     void* data = NULL;
@@ -167,7 +167,7 @@ int handle_write_file_req(packet_t* req, packet_t* response)
     {
         CHECK_FATAL_EQ(data, malloc(data_size), NULL, NO_MEM_FATAL);
         CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, data, data_size), -1, EBADMSG,
-                                 EBADMSG, "Cannot read buffer file inside packet! fd(%d)", sender);
+                                 EBADMSG, "Cannot read buffer file inside packet! fd(%d)", ARGS(sender));
     }
     
     RET_IF(data_size == 0, 0);
@@ -242,10 +242,10 @@ int handle_append_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
     bool_t send_back;
     CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, &send_back, sizeof(bool_t)), -1, EBADMSG,
-                                 EBADMSG, "Cannot read 'send back' inside packet! fd(%d)", sender);
+                                 EBADMSG, "Cannot read 'send back' inside packet! fd(%d)", ARGS(sender));
 
     int data_size = packet_get_remaining_byte_count(req);
     void* data = NULL;
@@ -253,7 +253,7 @@ int handle_append_file_req(packet_t* req, packet_t* response)
     {
         CHECK_FATAL_EQ(data, malloc(data_size), NULL, NO_MEM_FATAL);
         CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, data, data_size), -1, EBADMSG,
-                                 EBADMSG, "Cannot read buffer file inside packet! fd(%d)", sender);
+                                 EBADMSG, "Cannot read buffer file inside packet! fd(%d)", ARGS(sender));
     }
 
     RET_IF(data_size == 0, 0);
@@ -321,7 +321,7 @@ int handle_read_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
 
     file_system_t* fs = get_fs();
 
@@ -363,7 +363,7 @@ int handle_nread_files_req(packet_t* req, packet_t* response)
     int read_result;
     size_t n_to_read;
     CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, &n_to_read, sizeof(size_t)), -1, EBADMSG,
-                                    EBADMSG, "Cannot read n_to_read inside packet! fd(%d)", sender);
+                                    EBADMSG, "Cannot read n_to_read inside packet! fd(%d)", ARGS(sender));
     bool_t read_all = n_to_read <= 0;
 
     file_system_t* fs = get_fs();
@@ -399,7 +399,7 @@ int handle_remove_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
 
     file_system_t* fs = get_fs();
 
@@ -433,7 +433,7 @@ int handle_lock_file_req(packet_t* req, packet_t* response)
     int result = 0;
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
 
     file_system_t* fs = get_fs();
 
@@ -473,7 +473,7 @@ int handle_unlock_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
 
     file_system_t* fs = get_fs();
 
@@ -515,7 +515,7 @@ int handle_close_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
 
     file_system_t* fs = get_fs();
     acquire_write_lock_fs(fs);

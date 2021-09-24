@@ -7,24 +7,25 @@
 
 typedef enum bool { FALSE, TRUE } bool_t;
 
+#define EMTPY_MACRO
+#define ARGS(...) __VA_ARGS__,
+#define NO_ARGS EMTPY_MACRO
+
 #define START_RED_CONSOLE "\033[31m"
 #define START_YELLOW_CONSOLE "\033[33m"
 #define RESET_COLOR_CONSOLE "\033[0m\n"
 
 #define PRINT_FATAL(errno_code, ...) printf(START_RED_CONSOLE "[Fatal] "); \
                             printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]\r\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+                            printf(" %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
 #define PRINT_ERROR(errno_code, ...) printf(START_RED_CONSOLE "[Error] "); \
                             printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]\r\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+                            printf(" %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
 
-#define PRINT_WARNING(errno_code, ...) printf(START_YELLOW_CONSOLE "[Warning] "); \
-                            printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]\r\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+#define PRINT_WARNING(errno_code, message, ...)  printf(START_YELLOW_CONSOLE "[Warning] " message " %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __VA_ARGS__ __FILE__, __func__, __LINE__, strerror(errno_code));
 
-#define PRINT_INFO(...)     printf("[Info] "); \
-                            printf(__VA_ARGS__); \
+#define PRINT_INFO(...)     printf("[Info] " __VA_ARGS__); \
                             printf("\r\n")
   
 #define CHECK_FATAL_ERRNO(var, value, ...) var = value; \
@@ -59,15 +60,15 @@ typedef enum bool { FALSE, TRUE } bool_t;
                                                                             return ret_value; \
                                                                         }
 
-#define CHECK_WARNING_EQ_ERRNO(var, value, err, ret_value, errno_val, ...) if((var = value) == err) { \
+#define CHECK_WARNING_EQ_ERRNO(var, value, err, ret_value, errno_val, message, ...) if((var = value) == err) { \
                                                                             errno = errno_val; \
-                                                                            PRINT_WARNING(errno_val, __VA_ARGS__); \
+                                                                            PRINT_WARNING(errno_val, message, __VA_ARGS__); \
                                                                             return ret_value; \
                                                                         }
 
-#define CHECK_WARNING_NEQ_ERRNO(var, value, err, ret_value, errno_val, ...) if((var = value) != err) { \
+#define CHECK_WARNING_NEQ_ERRNO(var, value, err, ret_value, errno_val, message, ...) if((var = value) != err) { \
                                                                             errno = errno_val; \
-                                                                            PRINT_WARNING(errno_val, __VA_ARGS__); \
+                                                                            PRINT_WARNING(errno_val, message, __VA_ARGS__); \
                                                                             return ret_value; \
                                                                         }
 

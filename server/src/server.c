@@ -112,7 +112,7 @@ void* handle_client_requests(void* data)
 
         if(request == NULL)
         {
-            PRINT_WARNING(EINVAL, "[W/%lu] Request null, skipping.", curr);
+            PRINT_WARNING(EINVAL, "[W/%lu] Request null, skipping.", ARGS(curr));
             continue;
         }
 
@@ -187,7 +187,7 @@ void* handle_client_requests(void* data)
             res = send_packet_to_fd(packet_get_sender(request), res_packet);
             if(res == -1)
             {
-                PRINT_WARNING(errno, "Cannot send error packet to fd(%d)!", packet_get_sender(request));
+                PRINT_WARNING(errno, "Cannot send error packet to fd(%d)!", ARGS(packet_get_sender(request)));
             }
         }
 
@@ -286,7 +286,6 @@ void* handle_connections(void* params)
     {
         bool_t add_failed = FALSE;
 
-        PRINT_INFO("Waiting for new connections.");
         int new_id = accept(singleton_server->server_socket_id, NULL, 0);
         if(new_id == -1)
             continue;
@@ -298,7 +297,7 @@ void* handle_connections(void* params)
         // if something go wrong with the queue we close the connection right away
         if(add_failed)
         {
-            PRINT_WARNING(errno, "ll_add_head failed!.");
+            PRINT_WARNING(errno, "ll_add_head failed!.", NO_ARGS);
             free(new_client);
             close(new_id);
 

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
 
 #include <sys/types.h>
 #include <dirent.h>
@@ -11,14 +12,19 @@
 #include "utils.h"
 
 void print_help();
+
 void send_filenames();
-void read_file(const char* filename);
-int send_file(char* pathname, char* dirname);
+void send_file_inside_dirs();
 void read_filenames();
 void read_n_files();
+void lock_filenames();
+void unlock_filenames();
 void remove_filenames();
 
-void send_file_inside_dirs();
+void read_file(const char* filename);
+int send_file(char* pathname, char* dirname);
+void lock_file(const char* filename);
+void unlock_file(const char* filename);
 
 int main(int argc, char **argv)
 {
@@ -45,11 +51,12 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    struct timespec t;
-    t.tv_sec = 10;
+    return 0;
+    struct timespec timeout = { time(0) + 5, 0 };
+    int interval = 400;
     char* socket_name = client_get_socket_name(g_params);
-    int connected = openConnection(socket_name, 1, t);
-    if(connected != 0)
+    int connected = openConnection(socket_name, interval, timeout);
+    if(connected == -1)
     {
         free_client_params(g_params);
         PRINT_FATAL(errno, "Couldn't connect to host!");
@@ -64,6 +71,9 @@ int main(int argc, char **argv)
     read_filenames();
     read_n_files();
 
+    lock_filenames();
+    unlock_filenames();
+
     remove_filenames();
 
     int closed = closeConnection(socket_name);
@@ -71,9 +81,81 @@ int main(int argc, char **argv)
     {
         PRINT_ERROR(errno, "Problems during close connection!");
     }
+    else
+    {
+        PRINT_INFO("Disconnected from server!");
+    }
 
     free_client_params(g_params);
     return 0;
+}
+
+void lock_filenames()
+{
+    node_t* curr = ll_get_head_node(client_file_list_lockable(g_params));
+    while(curr)
+    {
+        char* pathname = node_get_value(curr);
+        lock_file(pathname);
+
+        curr = node_get_next(curr);
+    }
+}
+
+void unlock_filenames()
+{   
+    node_t* curr = ll_get_head_node(client_file_list_unlockable(g_params));
+    while(curr)
+    {
+        char* pathname = node_get_value(curr);
+        unlock_file(pathname);
+        
+        curr = node_get_next(curr);
+    }
+}
+
+void lock_file(const char* filename)
+{
+    int result = API_CALL(openFile(filename, 0));
+    if(result == -1)
+    {
+        PRINT_WARNING(errno, "Lock file (Open) %s failed!", ARGS(filename));
+        return;
+    }
+
+    result = API_CALL(lockFile(filename));
+    if(result == -1)
+    {
+        PRINT_WARNING(errno, "Lock file (Lock) %s failed!", ARGS(filename));
+    }
+
+    result = API_CALL(closeFile(filename));
+    if(result == -1)
+    {
+        PRINT_WARNING(errno, "Lock file (Close) %s failed!", ARGS(filename));
+    }
+}
+
+void unlock_file(const char* filename)
+{
+    int result = API_CALL(openFile(filename, O_LOCK));
+    if(result == -1)
+    {
+        PRINT_WARNING(errno, "Unlock file (Open) %s failed!", ARGS(filename));
+        return;
+    }
+
+    result = API_CALL(unlockFile(filename));
+    if(result == -1)
+    {
+        PRINT_WARNING(errno, "Unlock file (Unlock) %s failed!", ARGS(filename));
+    }
+
+    result = API_CALL(closeFile(filename));
+    if(result == -1)
+    {
+        PRINT_WARNING(errno, "Write file (Close) %s failed!", ARGS(filename));
+    }
 }
 
 int send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remaining)
@@ -103,13 +185,12 @@ int send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remaini
 
 void send_file_inside_dirs()
 {
-    node_t* curr_dir = ll_get_head_node(client_dirname_file_sendable(g_params));
-    while(curr_dir)
-    {
-        string_int_pair_t* value = node_get_value(curr_dir);
-        int remaining = pair_get_int(value);
-        send_files_inside_dir_rec(pair_get_str(value), remaining == 0, &remaining);
-    }
+    char* dir = client_dirname_file_sendable(g_params);
+    if(!dir)
+        return;
+
+    int num = client_dirname_file_sendable_num(g_params);
+    send_files_inside_dir_rec(dir, num == 0, &num);
 }
 
 void send_filenames()
@@ -130,20 +211,20 @@ int send_file(char* pathname, char* dirname)
     int result = API_CALL(openFile(pathname, O_CREATE | O_LOCK));
     if(result == -1)
     {
-        PRINT_WARNING(errno, "Write file (Open) %s failed!", pathname);
+        PRINT_WARNING(errno, "Write file (Open) %s failed!", ARGS(pathname));
         return -1;
     }
 
     int did_write = API_CALL(writeFile(pathname, dirname));
     if(did_write == -1)
     {
-        PRINT_WARNING(errno, "Write file (Write) %s failed!", pathname);
+        PRINT_WARNING(errno, "Write file (Write) %s failed!", ARGS(pathname));
     }
 
     result = API_CALL(closeFile(pathname));
     if(result == -1)
     {
-        PRINT_WARNING(errno, "Write file (Close) %s failed!", pathname);
+        PRINT_WARNING(errno, "Write file (Close) %s failed!", ARGS(pathname));
     }
 
     return did_write;
@@ -154,7 +235,7 @@ void read_file(const char* filename)
     int result = API_CALL(openFile(filename, 0));
     if(result == -1)
     {
-        PRINT_WARNING(errno, "Read file (Open) %s failed!", filename);
+        PRINT_WARNING(errno, "Read file (Open) %s failed!", ARGS(filename));
         return;
     }
 
@@ -163,13 +244,13 @@ void read_file(const char* filename)
     int has_read = API_CALL(readFile(filename, &buffer, &buffer_size));
     if(has_read == -1)
     {
-        PRINT_WARNING(errno, "Read file (Read) %s failed!", filename);
+        PRINT_WARNING(errno, "Read file (Read) %s failed!", ARGS(filename));
     }
 
     result = API_CALL(closeFile(filename));
     if(result == -1)
     {
-        PRINT_WARNING(errno, "Read file (Close) %s failed!", filename);
+        PRINT_WARNING(errno, "Read file (Close) %s failed!", ARGS(filename));
     }
 
     if(has_read == -1)
@@ -215,7 +296,9 @@ void read_filenames()
 
 void read_n_files()
 {
-    readNFiles(client_num_file_readed(g_params), client_dirname_readed_files(g_params));
+    int n_read = client_num_file_readed(g_params);
+    if(n_read >= 0)
+        readNFiles(n_read, client_dirname_readed_files(g_params));
 }
 
 void remove_filenames()
@@ -228,7 +311,7 @@ void remove_filenames()
         int result = API_CALL(openFile(curr_filename, O_LOCK));
         if(result == -1)
         {
-            PRINT_WARNING(errno, "Remove file (Open) %s failed!", curr_filename);
+            PRINT_WARNING(errno, "Remove file (Open) %s failed!", ARGS(curr_filename));
             curr = node_get_next(curr);
             continue;
         }
@@ -236,11 +319,11 @@ void remove_filenames()
         result = API_CALL(removeFile(curr_filename));
         if(result == -1)
         {
-            PRINT_WARNING(errno, "Remove file (Remove) %s failed!", curr_filename);
+            PRINT_WARNING(errno, "Remove file (Remove) %s failed!", ARGS(curr_filename));
             result = API_CALL(closeFile(curr_filename));
             if(result == -1)
             {
-                PRINT_WARNING(errno, "Remove file (Close) %s failed!", curr_filename);
+                PRINT_WARNING(errno, "Remove file (Close) %s failed!", ARGS(curr_filename));
             }
         }
 

@@ -19,17 +19,17 @@ void free_client_params(client_params_t* params);
 bool_t client_is_print_help(client_params_t*);
 char* client_get_socket_name(client_params_t*);
 int client_num_file_readed(client_params_t*);
+int client_dirname_file_sendable_num(client_params_t* params);
 char* client_dirname_readed_files(client_params_t*);
 char* client_dirname_replaced_files(client_params_t* params);
-linked_list_t* client_dirname_file_sendable(client_params_t*);
+char* client_dirname_file_sendable(client_params_t*);
 linked_list_t* client_file_list_sendable(client_params_t*);
 linked_list_t* client_file_list_readable(client_params_t*);
+linked_list_t* client_file_list_lockable(client_params_t*);
+linked_list_t* client_file_list_unlockable(client_params_t*);
 linked_list_t* client_file_list_removable(client_params_t*);
 int client_ms_between_requests(client_params_t*);
 bool_t client_print_operations(client_params_t*);
-
-int pair_get_int(string_int_pair_t*);
-char* pair_get_str(string_int_pair_t*);
 
 void print_params(client_params_t* params);
 

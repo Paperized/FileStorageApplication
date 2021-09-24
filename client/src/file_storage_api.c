@@ -15,13 +15,13 @@
 
 #define CHECK_WRITE_PACKET(pk, write_res) if(write_res == -1) { \
                                                 destroy_packet(pk); \
-                                                PRINT_WARNING(errno, "Cannot write data inside packet!"); \
+                                                PRINT_WARNING(errno, "Cannot write data inside packet!", NO_ARGS); \
                                                 return -1; \
                                             }
 
 #define CHECK_READ_PACKET(pk, read_res, req) if(read_res == -1) { \
                                                 CLEANUP_PACKETS(pk, req); \
-                                                PRINT_WARNING(errno, "Cannot read data inside packet!"); \
+                                                PRINT_WARNING(errno, "Cannot read data inside packet!", NO_ARGS); \
                                                 return -1; \
                                             }
 
@@ -57,7 +57,7 @@
                                     if(error == -1) \
                                     { \
                                         destroy_packet(req); \
-                                        PRINT_WARNING(error, "Cannot send packet to server!"); \
+                                        PRINT_WARNING(error, "Cannot send packet to server!", NO_ARGS); \
                                         return -1; \
                                     }
 
@@ -65,7 +65,7 @@
                                         if(error == -1) \
                                         { \
                                             destroy_packet(req); \
-                                            PRINT_WARNING(error, "Cannot receive packet from server!"); \
+                                            PRINT_WARNING(error, "Cannot receive packet from server!", NO_ARGS); \
                                             return -1; \
                                         }
 
@@ -90,24 +90,18 @@ packet_t* wait_response_from_server(int* error)
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime)
 {
-    int available_time = abstime.tv_sec;
-    fd_server = socket(AF_UNIX, SOCK_STREAM, 0);
+    int remaining_ms = (abstime.tv_sec + abstime.tv_nsec / 1000000000) - time(0);
+    CHECK_ERROR_EQ(fd_server, socket(AF_UNIX, SOCK_STREAM, 0), -1, -1, "Cannot connect to server!");
 
     struct sockaddr_un sa;
     strncpy(sa.sun_path, sockname, MAX_PATHNAME_API_LENGTH);
     sa.sun_family = AF_UNIX;
 
     int result_socket;
-    while(available_time > 0 && (result_socket = connect(fd_server, (struct sockaddr*)&sa, sizeof(sa))) != 0)
+    while(remaining_ms > 0 && (result_socket = connect(fd_server, (struct sockaddr*)&sa, sizeof(sa))) == -1)
     {
+        remaining_ms -= msec;
         sleep(msec);
-        available_time -= msec;
-    }
-
-    if(result_socket == -1)
-    {
-        // set errno
-
     }
 
     return result_socket;

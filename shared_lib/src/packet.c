@@ -105,7 +105,11 @@ packet_t* read_packet_from_fd(int fd)
 // send the packet to a fd
 int send_packet_to_fd(int fd, packet_t* p)
 {
-    RET_IF(!p, -1);
+    if(!p)
+    {
+        errno = EINVAL;
+        return -1;
+    }
 
     int write_result;
     CHECK_ERROR_EQ(write_result, writen(fd, &p->header.op, sizeof(packet_op)), -1, -1, "Cannot write packet_op! fd(%d)", fd);
