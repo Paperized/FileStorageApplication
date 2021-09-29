@@ -22,39 +22,10 @@ DEFAULT_SOCKETNAME = my_socket.sk
 
 all: clean-shared_lib compile-shared_lib clean-server compile-server clean-client compile-client
 
-FNAMES_WRITE = ./data4.txt,./data2.txt,./data3.txt,./data1.txt,./data5.txt,./data6.txt,./data7.txt
-
-test-client:
-	test -d $(CDIR)/bin/data_received/ || cd $(CDIR)/bin && mkdir data_received
-	cd $(CDIR)/bin && echo "IL PRIMO FILE E' IL FORTUNATO" > data1.txt
-	cd $(CDIR)/bin && echo "FORSE LO INVIA" > data2.txt
-	cd $(CDIR)/bin && echo "PROVA 333333" > data3.txt
-	cd $(CDIR)/bin && echo "PROVA PROVA 4" > data4.txt
-	cd $(CDIR)/bin && echo "LA MACCHINA E' VELOCE" > data5.txt
-	cd $(CDIR)/bin && echo "DATA6 FORSE?^" > data6.txt
-	cd $(CDIR)/bin && echo "XDDDDD" > data7.txt
-	cd $(CDIR)/bin && ./client.out -f ../../$(SDIRNAME)/bin/$(DEFAULT_SOCKETNAME) -p -W $(FNAMES_WRITE) -r ./data6.txt -d ./data_received -R 2
-test-server:
-	cd $(SDIR)/bin && ./server.out
-
-dtest-client:
-	test -d $(CDIR)/bin/data_received || cd $(CDIR)/bin && mkdir data_received
-	cd $(CDIR)/bin && echo "IL PRIMO FILE E' IL FORTUNATO" > data1.txt
-	cd $(CDIR)/bin && echo "FORSE LO INVIA" > data2.txt
-	cd $(CDIR)/bin && echo "PROVA 333333" > data3.txt
-	cd $(CDIR)/bin && echo "PROVA PROVA 4" > data4.txt
-	cd $(CDIR)/bin && echo "LA MACCHINA E' VELOCE" > data5.txt
-	cd $(CDIR)/bin && echo "DATA6 FORSE?^" > data6.txt
-	cd $(CDIR)/bin && echo "XDDDDD" > data7.txt
-	cd $(CDIR)/bin && gdb ./client.out
-dtest-server:
-	cd $(SDIR)/bin && gdb ./server.out
-
 compile-all: compile-shared_lib compile-client compile-server
 compile-server: $(SDIR)/bin/server
 compile-client: $(CDIR)/bin/client
 compile-shared_lib: $(LDIR)/bin/shared_lib
-
 
 $(SDIR)/bin/server: $(SDIR)/obj/config_params.o $(SDIR)/obj/server.o $(SDIR)/obj/handle_client.o $(SDIR)/obj/file_stored.o $(SDIR)/obj/file_system.o $(SDIR)/obj/logging.o $(SDIR)/obj/replacement_policy.o $(LDIR)/bin/shared_lib.a
 	$(CC) $(CFLAGS_SERVER) -g $(SDIR)/src/main.c -o $@.out $^ $(LIBS)
@@ -125,7 +96,7 @@ clean-shared_lib:
 define CONFIG_TEMPLATE
 SERVER_SOCKET_NAME=$(DEFAULT_SOCKETNAME)
 SERVER_THREAD_WORKERS=4
-SERVER_BYTE_STORAGE_AVAILABLE=23473274
+SERVER_BYTE_STORAGE_AVAILABLE=30KB
 SERVER_MAX_FILES_NUM=100
 POLICY_NAME=FIFO
 SERVER_BACKLOG_NUM=10

@@ -8,8 +8,8 @@ struct configuration_params {
     unsigned int thread_workers;
     unsigned int bytes_storage_available;
     unsigned int max_files_num;
-    char socket_name[MAX_PATHNAME_API_LENGTH];
-    char policy_type[MAX_POLICY_LENGTH];
+    char socket_name[MAX_PATHNAME_API_LENGTH + 1];
+    char policy_type[MAX_POLICY_LENGTH + 1];
     unsigned int backlog_sockets_num;
 };
 
@@ -37,11 +37,19 @@ configuration_params_t* load_config_params(const char* config_path_name)
     CHECK_ERROR_EQ(fptr, fopen(config_path_name, "r"), NULL, NULL, "Configuration file cannot be opened!");
     CHECK_FATAL_ERRNO(config, malloc(sizeof(configuration_params_t)), NO_MEM_FATAL);
 
-    fscanf(fptr, "SERVER_SOCKET_NAME=%s\n", config->socket_name);
+    fscanf(fptr, "SERVER_SOCKET_NAME=%108s\n", config->socket_name);
+    config->socket_name[MAX_PATHNAME_API_LENGTH] = '\0';
+
     fscanf(fptr, "SERVER_THREAD_WORKERS=%u\n", &config->thread_workers);
-    fscanf(fptr, "SERVER_BYTE_STORAGE_AVAILABLE=%u\n", &config->bytes_storage_available);
+
+    char storageSize[101] = { '\0' };
+    fscanf(fptr, "SERVER_BYTE_STORAGE_AVAILABLE=%100s\n", storageSize);
+    config->bytes_storage_available = filesize_string_to_byte(storageSize, 100);
+    
     fscanf(fptr, "SERVER_MAX_FILES_NUM=%u\n", &config->max_files_num);
-    fscanf(fptr, "POLICY_NAME=%s\n", config->policy_type);
+    fscanf(fptr, "POLICY_NAME=%40s\n", config->policy_type);
+    config->policy_type[MAX_POLICY_LENGTH] = '\0';
+
     fscanf(fptr, "SERVER_BACKLOG_NUM=%u\n", &config->backlog_sockets_num);
 
     return config;

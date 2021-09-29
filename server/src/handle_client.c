@@ -23,7 +23,7 @@ static inline void notify_given_lock(int client)
 {
     if(send_packet_to_fd(client, p_on_file_given_lock) == -1)
     {
-        PRINT_WARNING(errno, "Couldn't notify client on lock given! fd(%d)", ARGS(client));
+        PRINT_WARNING(errno, "Couldn't notify client on lock given! fd(%d)", client);
     }
 }
 
@@ -37,7 +37,7 @@ static inline void notify_file_removed_to_lockers(queue_t* locks_queue)
         int client_fd = *((int*)node_get_value(curr));
         if(send_packet_to_fd(client_fd, p_on_file_deleted_locks) == -1)
         {
-            PRINT_WARNING(errno, "Couldn't notify client locker on file removed! fd(%d)", ARGS(client_fd));
+            PRINT_WARNING(errno, "Couldn't notify client locker on file removed! fd(%d)", client_fd);
         }
 
         curr = node_get_next(curr);
@@ -84,11 +84,9 @@ int handle_open_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int flags;
     CHECK_WARNING_EQ_ERRNO(error, read_data(req, &flags, sizeof(int)), -1, EBADMSG,
-                                 EBADMSG, "Cannot read flags inside packet! fd(%d)", ARGS(sender));
+                                 EBADMSG, "Cannot read flags inside packet! fd(%d)", sender);
     char pathname[MAX_PATHNAME_API_LENGTH + 1];
-    READ_PATH(error, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
-
-    PRINT_INFO("Pathname %s.", pathname);
+    READ_PATH(error, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
 
     file_system_t* fs = get_fs();
 
@@ -109,6 +107,7 @@ int handle_open_file_req(packet_t* req, packet_t* response)
         }
 
         file = create_file(pathname);
+
         file_add_client(file, sender);
         if(flags | O_LOCK)
         {
@@ -116,7 +115,7 @@ int handle_open_file_req(packet_t* req, packet_t* response)
             file_set_write_enabled(file, TRUE);
         }
 
-        if(!add_file_fs(fs, pathname, file))
+        if(add_file_fs(fs, pathname, file) <= 0)
         {
             release_write_lock_fs(fs);
             free_file(file);
@@ -144,6 +143,8 @@ int handle_open_file_req(packet_t* req, packet_t* response)
             file_enqueue_lock(file, sender);
             result = -1;
         }
+
+        notify_used_file(file);
         release_write_lock_file(file);
     }
 
@@ -156,10 +157,10 @@ int handle_write_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH + 1];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
     bool_t send_back;
     CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, &send_back, sizeof(bool_t)), -1, EBADMSG,
-                                 EBADMSG, "Cannot read 'send back' inside packet! fd(%d)", ARGS(sender));
+                                 EBADMSG, "Cannot read 'send back' inside packet! fd(%d)", sender);
 
     int data_size = packet_get_remaining_byte_count(req);
     void* data = NULL;
@@ -167,7 +168,7 @@ int handle_write_file_req(packet_t* req, packet_t* response)
     {
         CHECK_FATAL_EQ(data, malloc(data_size), NULL, NO_MEM_FATAL);
         CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, data, data_size), -1, EBADMSG,
-                                 EBADMSG, "Cannot read buffer file inside packet! fd(%d)", ARGS(sender));
+                                 EBADMSG, "Cannot read buffer file inside packet! fd(%d)", sender);
     }
     
     if(data_size == 0)
@@ -233,6 +234,7 @@ int handle_write_file_req(packet_t* req, packet_t* response)
     acquire_write_lock_file(file);
     file_replace_content(file, data, data_size);
     RESET_FILE_WRITEMODE(file);
+    notify_used_file(file);
     release_write_lock_file(file);
 
     release_write_lock_fs(fs);
@@ -246,10 +248,10 @@ int handle_append_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH + 1];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
     bool_t send_back;
     CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, &send_back, sizeof(bool_t)), -1, EBADMSG,
-                                 EBADMSG, "Cannot read 'send back' inside packet! fd(%d)", ARGS(sender));
+                                 EBADMSG, "Cannot read 'send back' inside packet! fd(%d)", sender);
 
     int data_size = packet_get_remaining_byte_count(req);
     void* data = NULL;
@@ -257,7 +259,7 @@ int handle_append_file_req(packet_t* req, packet_t* response)
     {
         CHECK_FATAL_EQ(data, malloc(data_size), NULL, NO_MEM_FATAL);
         CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, data, data_size), -1, EBADMSG,
-                                 EBADMSG, "Cannot read buffer file inside packet! fd(%d)", ARGS(sender));
+                                 EBADMSG, "Cannot read buffer file inside packet! fd(%d)", sender);
     }
 
     if(data_size == 0)
@@ -316,6 +318,7 @@ int handle_append_file_req(packet_t* req, packet_t* response)
     acquire_write_lock_file(file);
     file_append_content(file, data, data_size);
     RESET_FILE_WRITEMODE(file);
+    notify_used_file(file);
     release_write_lock_file(file);
 
     release_write_lock_fs(fs);
@@ -329,7 +332,7 @@ int handle_read_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH + 1];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
 
     file_system_t* fs = get_fs();
 
@@ -360,7 +363,13 @@ int handle_read_file_req(packet_t* req, packet_t* response)
     size_t content_size = file_get_size(file);
     if(content_size > 0)
         write_data(response, file_get_data(file), content_size);
+
     release_read_lock_file(file);
+
+    acquire_write_lock_file(file);
+    notify_used_file(file);
+    release_write_lock_file(file);
+    
     release_read_lock_fs(fs);
     return 0;
 }
@@ -369,9 +378,9 @@ int handle_nread_files_req(packet_t* req, packet_t* response)
 {
     int sender = packet_get_sender(req);
     int read_result;
-    size_t n_to_read;
+    int n_to_read;
     CHECK_WARNING_EQ_ERRNO(read_result, read_data(req, &n_to_read, sizeof(int)), -1, EBADMSG,
-                                    EBADMSG, "Cannot read n_to_read inside packet! fd(%d)", ARGS(sender));
+                                    EBADMSG, "Cannot read n_to_read inside packet! fd(%d)", sender);
     bool_t read_all = n_to_read <= 0;
 
     file_system_t* fs = get_fs();
@@ -380,12 +389,12 @@ int handle_nread_files_req(packet_t* req, packet_t* response)
     acquire_read_lock_fs(fs);
     file_stored_t** files = get_files_stored(fs);
     size_t fs_file_count = get_file_count_fs(fs);
-    int files_readed = read_all ? fs_file_count : MIN(n_to_read, fs_file_count);
+    int files_readed = read_all ? fs_file_count : (MIN(n_to_read, fs_file_count));
     write_data(response, &files_readed, sizeof(int));
 
     // match the array boundaries (example: 4 files means -> [0, 3])
     files_readed -= 1;
-    while(read_all || files_readed >= 0)
+    while(files_readed >= 0)
     {
         file_stored_t* curr_file = files[files_readed];
         acquire_read_lock_file(curr_file);
@@ -407,7 +416,7 @@ int handle_remove_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH + 1];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
 
     file_system_t* fs = get_fs();
 
@@ -441,7 +450,7 @@ int handle_lock_file_req(packet_t* req, packet_t* response)
     int result = 0;
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH + 1];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
 
     file_system_t* fs = get_fs();
 
@@ -471,6 +480,7 @@ int handle_lock_file_req(packet_t* req, packet_t* response)
         result = -1;
     }
 
+    notify_used_file(file);
     release_write_lock_file(file);
     release_write_lock_fs(fs);
     return result;
@@ -481,7 +491,7 @@ int handle_unlock_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH + 1];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
 
     file_system_t* fs = get_fs();
 
@@ -513,6 +523,7 @@ int handle_unlock_file_req(packet_t* req, packet_t* response)
     file_set_lock_owner(file, new_owner);
     notify_given_lock(new_owner);
 
+    notify_used_file(file);
     release_write_lock_file(file);
     release_write_lock_fs(fs);
     return 0;
@@ -523,7 +534,7 @@ int handle_close_file_req(packet_t* req, packet_t* response)
     int sender = packet_get_sender(req);
     int read_result;
     char pathname[MAX_PATHNAME_API_LENGTH + 1];
-    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", ARGS(sender));
+    READ_PATH(read_result, req, pathname, TRUE, "Cannot read pathname inside packet! fd(%d)", sender);
 
     file_system_t* fs = get_fs();
     acquire_write_lock_fs(fs);
@@ -541,6 +552,7 @@ int handle_close_file_req(packet_t* req, packet_t* response)
     }
 
     file_remove_client(file, sender);
+    notify_used_file(file);
     release_write_lock_file(file);
     release_write_lock_fs(fs);
     return 0;

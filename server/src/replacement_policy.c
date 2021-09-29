@@ -20,7 +20,10 @@ bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linke
         file_stored_t* curr = all_files[i];
         char* curr_pathname = file_get_pathname(curr);
         if(strncmp(curr_pathname, skip_file, MAX_PATHNAME_API_LENGTH) == 0)
+        {
+            ++i;
             continue;
+        }
         
         size_t curr_size = file_get_size(curr);
         queue_t* locks_queue = file_get_locks_queue(curr);
@@ -50,6 +53,7 @@ bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linke
     {
         network_file_t* entry = node_get_value(removing_node);
         remove_file_fs(fs, netfile_get_pathname(entry), TRUE);
+        removing_node = node_get_next(removing_node);
     }
 
     free(all_files);
@@ -67,17 +71,34 @@ static int cmp_time(struct timespec* t1, struct timespec* t2)
     return t1->tv_nsec - t2->tv_nsec;
 }
 
+static int replacement_cmp_size(file_stored_t* f1, file_stored_t* f2)
+{
+    return file_get_size(f1) - file_get_size(f2);
+}
+
 int replacement_policy_fifo(file_stored_t* f1, file_stored_t* f2)
 {
-    return cmp_time(file_get_creation_time(f1), file_get_creation_time(f2));
+    int cmp = cmp_time(file_get_creation_time(f1), file_get_creation_time(f2));
+    if(cmp == 0)
+        return replacement_cmp_size(f1, f2);
+
+    return cmp;
 }
 
 int replacement_policy_lru(file_stored_t* f1, file_stored_t* f2)
 {
-    return cmp_time(file_get_last_use_time(f1), file_get_last_use_time(f2));
+    int cmp = cmp_time(file_get_last_use_time(f1), file_get_last_use_time(f2));
+    if(cmp == 0)
+        return replacement_cmp_size(f1, f2);
+
+    return cmp;
 }
 
 int replacement_policy_lfu(file_stored_t* f1, file_stored_t* f2)
 {
-    return file_get_use_frequency(f1) - file_get_use_frequency(f2);
+    int cmp = file_get_use_frequency(f1) - file_get_use_frequency(f2);
+    if(cmp == 0)
+        return replacement_cmp_size(f1, f2);
+
+    return cmp;
 }

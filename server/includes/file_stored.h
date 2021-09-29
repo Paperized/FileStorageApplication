@@ -41,6 +41,8 @@ void acquire_write_lock_file(file_stored_t* file);
 void release_read_lock_file(file_stored_t* file);
 void release_write_lock_file(file_stored_t* file);
 
+void notify_used_file(file_stored_t* file);
+
 uint32_t file_inc_frequency(file_stored_t* file, int step);
 queue_t* file_get_locks_queue(file_stored_t* file);
 

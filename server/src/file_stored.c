@@ -20,11 +20,11 @@ file_stored_t* create_file(const char* pathname)
 {
     file_stored_t* file;
     CHECK_FATAL_EQ(file, malloc(sizeof(file_stored_t)), NULL, NO_MEM_FATAL);
-    memset(file, 0, sizeof(file_stored_t));    
+    memset(file, 0, sizeof(file_stored_t));
 
     size_t len = strnlen(pathname, 108);
-    MAKE_COPY_BYTES(file->pathname, len, pathname);
-    
+    MAKE_COPY_BYTES(file->pathname, len + 1, pathname);
+
     file->locked_by = -1;
     file->opened_by = ll_create();
     file->lock_queue = create_q();
@@ -163,6 +163,14 @@ int file_dequeue_lock(file_stored_t* file)
     free(ptr);
 
     return new_client;
+}
+
+void notify_used_file(file_stored_t* file)
+{
+    NRET_IF(!file);
+
+    ++file->use_frequency;
+    clock_gettime(CLOCK_REALTIME, &file->last_use_time);
 }
 
 uint32_t file_inc_frequency(file_stored_t* file, int step)

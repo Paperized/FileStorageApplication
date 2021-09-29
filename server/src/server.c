@@ -112,11 +112,11 @@ void* handle_client_requests(void* data)
 
         if(request == NULL)
         {
-            PRINT_WARNING(EINVAL, "[W/%lu] Request null, skipping.", ARGS(curr));
+            PRINT_WARNING(EINVAL, "[W/%lu] Request null, skipping.", curr);
             continue;
         }
 
-        PRINT_INFO("[W/%lu] Handling client with id %d.", curr, packet_get_sender(request));
+        PRINT_INFO_DEBUG("[W/%lu] Handling client with id %d.", curr, packet_get_sender(request));
         packet_t* res_packet = create_packet(OP_OK, 0);
 
         int res;
@@ -124,52 +124,52 @@ void* handle_client_requests(void* data)
         switch(packet_get_op(request))
         {
             case OP_OPEN_FILE:
-                PRINT_INFO("[W/%lu] OP_OPEN_FILE request operation.", curr);
+                PRINT_INFO_DEBUG("[W/%lu] OP_OPEN_FILE request operation.", curr);
                 res = handle_open_file_req(request, res_packet);
                 break;
 
             case OP_LOCK_FILE:
-                PRINT_INFO("[W/%lu] OP_LOCK_FILE request operation.", curr);
+                PRINT_INFO_DEBUG("[W/%lu] OP_LOCK_FILE request operation.", curr);
                 res = handle_lock_file_req(request, res_packet);
                 break;
 
             case OP_UNLOCK_FILE:
-                PRINT_INFO("[W/%lu] OP_UNLOCK_FILE request operation.", curr);
+                PRINT_INFO_DEBUG("[W/%lu] OP_UNLOCK_FILE request operation.", curr);
                 res = handle_unlock_file_req(request, res_packet);
                 break;
 
             case OP_REMOVE_FILE:
-                PRINT_INFO("[W/%lu] OP_REMOVE_FILE request operation.", curr);
+                PRINT_INFO_DEBUG("[W/%lu] OP_REMOVE_FILE request operation.", curr);
                 res = handle_remove_file_req(request, res_packet);
                 break;
 
             case OP_WRITE_FILE:
-                PRINT_INFO("[W/%lu] OP_WRITE_FILE request operation.", curr);
+                PRINT_INFO_DEBUG("[W/%lu] OP_WRITE_FILE request operation.", curr);
                 res = handle_write_file_req(request, res_packet);
                 break;
 
             case OP_APPEND_FILE:
-                PRINT_INFO("[W/%lu] OP_APPEND_FILE request operation.", curr);
+                PRINT_INFO_DEBUG("[W/%lu] OP_APPEND_FILE request operation.", curr);
                 res = handle_append_file_req(request, res_packet);
                 break;
             
             case OP_READ_FILE:
-                PRINT_INFO("[W/%lu] OP_READ_FILE request operation.", curr);
+                PRINT_INFO_DEBUG("[W/%lu] OP_READ_FILE request operation.", curr);
                 res = handle_read_file_req(request, res_packet);
                 break;
 
             case OP_READN_FILES:
-                PRINT_INFO("[W/%lu] OP_READN_FILES request operation.", curr);
+                PRINT_INFO_DEBUG("[W/%lu] OP_READN_FILES request operation.", curr);
                 res = handle_nread_files_req(request, res_packet);
                 break;
 
             case OP_CLOSE_FILE:
-                PRINT_INFO("[W/%lu] OP_CLOSE_FILE request operation.", curr);
+                PRINT_INFO_DEBUG("[W/%lu] OP_CLOSE_FILE request operation.", curr);
                 res = handle_close_file_req(request, res_packet);
                 break;
 
             default:
-                PRINT_INFO("[W/%lu] Unknown request operation, skipping request.", curr);
+                PRINT_INFO_DEBUG("[W/%lu] Unknown request operation, skipping request.", curr);
                 break;
         }
 
@@ -187,13 +187,13 @@ void* handle_client_requests(void* data)
             res = send_packet_to_fd(packet_get_sender(request), res_packet);
             if(res == -1)
             {
-                PRINT_WARNING(errno, "Cannot send error packet to fd(%d)!", ARGS(packet_get_sender(request)));
+                PRINT_WARNING(errno, "Cannot send error packet to fd(%d)!", packet_get_sender(request));
             }
         }
 
         destroy_packet(request);
         destroy_packet(res_packet);
-        PRINT_INFO("[W/%lu] Finished handling.", curr);
+        PRINT_INFO_DEBUG("[W/%lu] Finished handling.", curr);
     }
 
     // on close
@@ -297,7 +297,7 @@ void* handle_connections(void* params)
         // if something go wrong with the queue we close the connection right away
         if(add_failed)
         {
-            PRINT_WARNING(errno, "ll_add_head failed!.", NO_ARGS);
+            //PRINT_WARNING(errno, "ll_add_head failed!.");
             free(new_client);
             close(new_id);
 
@@ -377,7 +377,6 @@ void* handle_clients_packets()
 
             if(FD_ISSET(curr_session, &current_clients))
             {
-                PRINT_INFO("reading packet %d.", curr_session);
                 packet_t* req = read_packet_from_fd(curr_session);
 
                 if(is_packet_valid(req))

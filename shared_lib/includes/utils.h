@@ -7,27 +7,29 @@
 
 typedef enum bool { FALSE, TRUE } bool_t;
 
-#define EMTPY_MACRO
-#define ARGS(...) __VA_ARGS__,
-#define NO_ARGS EMTPY_MACRO
-
 #define START_RED_CONSOLE "\033[31m"
 #define START_YELLOW_CONSOLE "\033[33m"
 #define RESET_COLOR_CONSOLE "\033[0m\n"
 
-#define PRINT_FATAL(errno_code, ...) printf(START_RED_CONSOLE "[Fatal] "); \
-                            printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+#define PRINT_WITH_COLOR(color, title, errno_code, message, ...)  printf(color "[" title "] " message " %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, ##__VA_ARGS__, (__FILE__), __func__, __LINE__, strerror(errno_code));
+#define PRINT_WARNING(errno_code, message, ...)  PRINT_WITH_COLOR(START_YELLOW_CONSOLE, "Warning", errno_code, message, ## __VA_ARGS__)
+#define PRINT_ERROR(errno_code, message, ...)  PRINT_WITH_COLOR(START_RED_CONSOLE, "Error", errno_code, message, ## __VA_ARGS__)
+#define PRINT_FATAL(errno_code, message, ...)  PRINT_WITH_COLOR(START_RED_CONSOLE, "Fatal", errno_code, message, ## __VA_ARGS__)
+#define PRINT_INFO(message, ...)     printf("[Info] " message "\n", ## __VA_ARGS__)
 
-#define PRINT_ERROR(errno_code, ...) printf(START_RED_CONSOLE "[Error] "); \
-                            printf(__VA_ARGS__); \
-                            printf(" %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __FILE__, __func__, __LINE__, strerror(errno_code))
+#define DEBUG_LOG
+#ifdef DEBUG_LOG
+    #define PRINT_INFO_DEBUG(message, ...) PRINT_INFO(message, ## __VA_ARGS__)
+    #define PRINT_WARNING_DEBUG(errno_code, message, ...)  PRINT_WARNING(errno_code, message, ## __VA_ARGS__)
+    #define PRINT_ERROR_DEBUG(errno_code, message, ...)  PRINT_ERROR(errno_code, message, ## __VA_ARGS__)
+    #define PRINT_FATAL_DEBUG(errno_code, message, ...)  PRINT_FATAL(errno_code, message, ## __VA_ARGS__)
+#else
+    #define PRINT_INFO_DEBUG(message, ...)
+    #define PRINT_WARNING_DEBUG(errno_code, message, ...)
+    #define PRINT_ERROR_DEBUG(errno_code, message, ...)
+    #define PRINT_FATAL_DEBUG(errno_code, message, ...)
+#endif
 
-#define PRINT_WARNING(errno_code, message, ...)  printf(START_YELLOW_CONSOLE "[Warning] " message " %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, __VA_ARGS__ __FILE__, __func__, __LINE__, strerror(errno_code));
-
-#define PRINT_INFO(...)     printf("[Info] " __VA_ARGS__); \
-                            printf("\r\n")
-  
 #define CHECK_FATAL_ERRNO(var, value, ...) var = value; \
                                             if(errno == ENOMEM) { \
                                                 PRINT_FATAL(errno, __VA_ARGS__); \
@@ -84,16 +86,7 @@ typedef enum bool { FALSE, TRUE } bool_t;
 #define UNLOCK_RWLOCK(rw) CHECK_FATAL_EVAL(pthread_rwlock_unlock(rw) != 0, "RWLock unlock failed!")
 
 #define LOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_lock(m) != 0, "Mutex lock failed!")
-
-#define DLOCK_MUTEX(m) LOCK_MUTEX(m); \
-                        printf("Lockato in riga: %d in %s Mutex: %s", __LINE__, __FILE__, (char*)#m); \
-                        printf(".\r\n")
-
 #define UNLOCK_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_unlock(m) != 0, "Mutex unlock failed!")
-
-#define DUNLOCK_MUTEX(m) UNLOCK_MUTEX(m); \
-                        printf("Unlockato in riga: %d in %s Mutex: %s", __LINE__, __FILE__, (char*)#m); \
-                        printf(".\r\n")
 
 #define COND_SIGNAL(s) CHECK_FATAL_EVAL(pthread_cond_signal(s) != 0, "Condition variable signal failed!")
 #define COND_BROADCAST(s) CHECK_FATAL_EVAL(pthread_cond_broadcast(s) != 0, "Condition variable signal failed!")
@@ -103,7 +96,7 @@ typedef enum bool { FALSE, TRUE } bool_t;
                                     memcpy(name, &(from), sizeof(type))
 
 #define MAKE_COPY_BYTES(name, size, from) CHECK_FATAL_EQ(name, malloc(size), NULL, NO_MEM_FATAL); \
-                                            memcpy(name, from, size)
+                                            strncpy(name, from, size)
 
 #define SET_VAR_MUTEX(var, expr, m)     LOCK_MUTEX(m); \
                                         var = expr; \
@@ -123,7 +116,9 @@ int read_file_util(const char* pathname, void** buffer, size_t* size);
 int write_file_util(const char* pathname, void* buffer, size_t size);
 int append_file_util(const char* pathname, void* buffer, size_t size);
 
-int buildpath(char* dest, char* src1, char* src2, size_t src1length, size_t src2length);
+char* get_filename_from_path(const char* path, size_t path_len, size_t* filename_len);
+int buildpath(char* dest, const char* src1, const char* src2, size_t src1length, size_t src2length);
+int filesize_string_to_byte(char* str, unsigned int max_length);
 
 #define NO_MEM_FATAL "Cannot allocate more memory!"
 #define THREAD_CREATE_FATAL "Cannot create new thread!"

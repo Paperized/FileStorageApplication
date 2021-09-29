@@ -210,7 +210,11 @@ void ll_remove_str(linked_list_t* ll, char* str)
 
     if(curr != NULL)
     {
-        prev->next = curr->next;
+        if(prev)
+            prev->next = curr->next;
+        else
+            ll->head = curr->next;
+
         free(curr->value);
         free(curr);
         ll->count -= 1;

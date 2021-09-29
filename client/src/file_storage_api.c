@@ -15,13 +15,13 @@
 
 #define CHECK_WRITE_PACKET(pk, write_res) if(write_res == -1) { \
                                                 destroy_packet(pk); \
-                                                PRINT_WARNING(errno, "Cannot write data inside packet!", NO_ARGS); \
+                                                PRINT_WARNING(errno, "Cannot write data inside packet!"); \
                                                 return -1; \
                                             }
 
 #define CHECK_READ_PACKET(pk, read_res, req) if(read_res == -1) { \
                                                 CLEANUP_PACKETS(pk, req); \
-                                                PRINT_WARNING(errno, "Cannot read data inside packet!", NO_ARGS); \
+                                                PRINT_WARNING(errno, "Cannot read data inside packet!"); \
                                                 return -1; \
                                             }
 
@@ -40,24 +40,24 @@
 #define READ_FILE_PACKET(pk, read_res, file_dptr, req) read_res = read_netfile(pk, file_dptr); \
                                             CHECK_READ_PACKET(pk, read_res, req)
 
-#define RET_ON_ERROR(req, res) if(packet_get_op(res) == OP_ERROR) \
+#define RET_ON_ERROR(req, pathname, res) if(packet_get_op(res) == OP_ERROR) \
                                 { \
                                     int read_res; \
                                     server_open_file_options_t err; \
                                     READ_PACKET(res, read_res, &err, sizeof(server_open_file_options_t), req); \
                                     errno = err; \
+                                    if(client_print_operations(g_params)) { \
+                                        PRINT_INFO("%s on %s ended with failure! [%s]", __func__, pathname, strerror(err)); \
+                                    } \
                                     CLEANUP_PACKETS(req, res); \
                                     return -1; \
                                 }
-
-#define DEBUG_OK(req) if(packet_get_op(res) == OP_OK) \
-                        printf("OK.\n");
 
 #define SEND_TO_SERVER(req, error) error = send_packet_to_fd(fd_server, req); \
                                     if(error == -1) \
                                     { \
                                         destroy_packet(req); \
-                                        PRINT_WARNING(error, "Cannot send packet to server!", NO_ARGS); \
+                                        PRINT_WARNING(error, "Cannot send packet to server!"); \
                                         return -1; \
                                     }
 
@@ -65,7 +65,7 @@
                                         if(error == -1) \
                                         { \
                                             destroy_packet(req); \
-                                            PRINT_WARNING(error, "Cannot receive packet from server!", NO_ARGS); \
+                                            PRINT_WARNING(error, "Cannot receive packet from server!"); \
                                             return -1; \
                                         }
 
@@ -128,6 +128,7 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
         }
     }
 
+    errno = 0;
     return result_socket;
 }
 
@@ -137,7 +138,7 @@ int closeConnection(const char* sockname)
 
     int error;
     SEND_TO_SERVER(of_packet, error);
-    
+
     return close(fd_server);
 }
 
@@ -153,9 +154,12 @@ int openFile(const char* pathname, int flags)
 
     packet_t* res;
     WAIT_UNTIL_RESPONSE(res, of_packet, error);
+    RET_ON_ERROR(of_packet, pathname, res);
 
-    RET_ON_ERROR(of_packet, res);
-    DEBUG_OK(res);
+    if(client_print_operations(g_params))
+    {
+        PRINT_INFO("openFile on %s ended with success! [%s]", pathname, strerror(0));
+    }
 
     // leggo la risposta
     CLEANUP_PACKETS(of_packet, res);
@@ -173,15 +177,17 @@ int readFile(const char* pathname, void** buf, size_t* size)
 
     packet_t* res;
     WAIT_UNTIL_RESPONSE(res, rf_packet, error);
-
-    RET_ON_ERROR(rf_packet, res);
-    DEBUG_OK(res);
+    RET_ON_ERROR(rf_packet, pathname, res);
 
     int buffer_size = packet_get_remaining_byte_count(res);
     CHECK_FATAL_ERRNO(*buf, malloc(buffer_size), NO_MEM_FATAL);
     READ_PACKET(res, error, *buf, buffer_size, rf_packet);
     *size = buffer_size;
 
+    if(client_print_operations(g_params))
+    {
+        PRINT_INFO("readFile on %s ended with success, %d bytes read! [%s]", pathname, buffer_size, strerror(0));
+    }
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
@@ -197,11 +203,10 @@ int readNFiles(int N, const char* dirname)
 
     packet_t* res;
     WAIT_UNTIL_RESPONSE(res, rf_packet, error);
-
-    RET_ON_ERROR(rf_packet, res);
-    DEBUG_OK(res);
+    RET_ON_ERROR(rf_packet, "-", res);
 
     int num_read;
+    size_t data_size_read = 0;
     READ_PACKET(res, error, &num_read, sizeof(int), rf_packet);
     char full_path[MAX_PATHNAME_API_LENGTH + 1];
 
@@ -213,7 +218,8 @@ int readNFiles(int N, const char* dirname)
         char* pathname = netfile_get_pathname(file_received);
         void* data = netfile_get_data(file_received);
         size_t data_size = netfile_get_data_size(file_received);
-
+        data_size_read += data_size;
+        PRINT_INFO("%s", pathname);
         if(pathname)
         {
             // save file
@@ -235,30 +241,51 @@ int readNFiles(int N, const char* dirname)
         free(file_received);
     }
 
+    if(client_print_operations(g_params))
+    {
+        PRINT_INFO("readNFiles ended with success! %d files readed for a total of %zu bytes! [%s]", num_read, data_size_read, strerror(0));
+    }
+
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
 }
 
 int writeFile(const char* pathname, const char* dirname)
 {
-    size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
-    packet_t* rf_packet = create_packet(OP_WRITE_FILE, path_size);
+    size_t path_len = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+    size_t file_len;
+    char* filename = get_filename_from_path(pathname, path_len, &file_len);
+    if(!filename)
+    {
+        errno = EINVAL;
+        PRINT_ERROR(EINVAL, "No filename found for path %s!", pathname);
+        return -1;
+    }
+
+    void* data;
+    size_t data_size;
+    read_file_util(pathname, &data, &data_size);
+
+    packet_t* rf_packet = create_packet(OP_WRITE_FILE, file_len + sizeof(bool_t));
     int error;
-    WRITE_PACKET_STR(rf_packet, error, pathname, path_size);
+    WRITE_PACKET_STR(rf_packet, error, filename, file_len);
     bool_t receive_back_files = dirname != NULL;
     WRITE_PACKET(rf_packet, error, &receive_back_files, sizeof(bool_t));
+    
+    if(data_size > 0)
+    {
+        WRITE_PACKET(rf_packet, error, data, data_size);
+    }
 
     SEND_TO_SERVER(rf_packet, error);
 
     packet_t* res;
     WAIT_UNTIL_RESPONSE(res, rf_packet, error);
+    RET_ON_ERROR(rf_packet, filename, res);
 
-    RET_ON_ERROR(rf_packet, res);
-    DEBUG_OK(res);
-
+    int num_read = 0;
     if(receive_back_files)
     {
-        int num_read;
         READ_PACKET(res, error, &num_read, sizeof(int), rf_packet);
         char full_path[MAX_PATHNAME_API_LENGTH + 1];
 
@@ -293,6 +320,12 @@ int writeFile(const char* pathname, const char* dirname)
         }
     }
 
+    if(client_print_operations(g_params))
+    {
+        PRINT_INFO("writeFile on %s ended with success! %zu bytes written and %d files replaced! [%s]", 
+                                filename, data_size, num_read, strerror(0));
+    }
+
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
 }
@@ -305,19 +338,21 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     WRITE_PACKET_STR(rf_packet, error, pathname, MAX_PATHNAME_API_LENGTH);
     bool_t receive_back_files = dirname != NULL;
     WRITE_PACKET(rf_packet, error, &receive_back_files, sizeof(bool_t));
-    WRITE_PACKET(rf_packet, error, buf, size);
+
+    if(size > 0)
+    {
+        WRITE_PACKET(rf_packet, error, buf, size);
+    }
 
     SEND_TO_SERVER(rf_packet, error);
 
     packet_t* res;
     WAIT_UNTIL_RESPONSE(res, rf_packet, error);
+    RET_ON_ERROR(rf_packet, pathname, res);
 
-    RET_ON_ERROR(rf_packet, res);
-    DEBUG_OK(res);
-
+    int num_read = 0;
     if(receive_back_files)
     {
-        int num_read;
         READ_PACKET(res, error, &num_read, sizeof(int), rf_packet);
         char full_path[MAX_PATHNAME_API_LENGTH + 1];
         
@@ -352,6 +387,12 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
         }
     }
 
+    if(client_print_operations(g_params))
+    {
+        PRINT_INFO("appendFile on %s ended with success! %zu bytes written and %d files replaced! [%s]", 
+                                pathname, size, num_read, strerror(0));
+    }
+
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
 }
@@ -367,9 +408,12 @@ int closeFile(const char* pathname)
 
     packet_t* res;
     WAIT_UNTIL_RESPONSE(res, rf_packet, error);
+    RET_ON_ERROR(rf_packet, pathname, res);
 
-    RET_ON_ERROR(rf_packet, res);
-    DEBUG_OK(res);
+    if(client_print_operations(g_params))
+    {
+        PRINT_INFO("closeFile on %s ended with success! [%s]", pathname, strerror(0));
+    }
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
@@ -386,9 +430,12 @@ int removeFile(const char* pathname)
 
     packet_t* res;
     WAIT_UNTIL_RESPONSE(res, rf_packet, error);
+    RET_ON_ERROR(rf_packet, pathname, res);
 
-    RET_ON_ERROR(rf_packet, res);
-    DEBUG_OK(res);
+    if(client_print_operations(g_params))
+    {
+        PRINT_INFO("removeFile on %s ended with success! [%s]", pathname, strerror(0));
+    }
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
@@ -405,9 +452,12 @@ int lockFile(const char* pathname)
 
     packet_t* res;
     WAIT_UNTIL_RESPONSE(res, rf_packet, error);
+    RET_ON_ERROR(rf_packet, pathname, res);
 
-    RET_ON_ERROR(rf_packet, res);
-    DEBUG_OK(res);
+    if(client_print_operations(g_params))
+    {
+        PRINT_INFO("lockFile on %s ended with success! [%s]", pathname, strerror(0));
+    }
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;
@@ -424,9 +474,12 @@ int unlockFile(const char* pathname)
 
     packet_t* res;
     WAIT_UNTIL_RESPONSE(res, rf_packet, error);
+    RET_ON_ERROR(rf_packet, pathname, res);
 
-    RET_ON_ERROR(rf_packet, res);
-    DEBUG_OK(res);
+    if(client_print_operations(g_params))
+    {
+        PRINT_INFO("unlockFile on %s ended with success! [%s]", pathname, strerror(0));
+    }
 
     CLEANUP_PACKETS(rf_packet, res);
     return 0;

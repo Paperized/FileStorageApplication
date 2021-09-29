@@ -73,26 +73,19 @@ void tokenize_filenames_into_ll(char* str, linked_list_t* ll)
     char* save_ptr;
 
     char* file_name = strtok_r(str, COMMA, &save_ptr);
-    size_t filename_size;
-    if(file_name == NULL) return;
-    
-    char* malloc_str;
-    filename_size = strnlen(file_name, MAX_PATHNAME_API_LENGTH);
-    MAKE_COPY_BYTES(malloc_str, filename_size + 1, file_name);
-    malloc_str[filename_size] = '\0';
+    if(!file_name) return;
+    file_name = realpath(file_name, NULL);
 
-    if(ll_add_tail(ll, malloc_str) != 0)
+    if(file_name && ll_add_tail(ll, file_name) != 0)
     {
         printf("Error adding %s to linked list during params read.\n", file_name);
     }
 
     while((file_name = strtok_r(NULL, COMMA, &save_ptr)) != NULL)
     {
-        filename_size = strnlen(file_name, MAX_PATHNAME_API_LENGTH);
-        MAKE_COPY_BYTES(malloc_str, filename_size + 1, file_name);
-        malloc_str[filename_size] = '\0';
+        file_name = realpath(file_name, NULL);
 
-        if(ll_add_tail(ll, file_name) != 0)
+        if(file_name && ll_add_tail(ll, file_name) != 0)
         {
             printf("Error adding %s to linked list during params read.\n", file_name);
         }

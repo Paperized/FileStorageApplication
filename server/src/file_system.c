@@ -126,15 +126,15 @@ int add_file_fs(file_system_t* fs, const char* pathname, file_stored_t* file)
     RET_IF(!fs, -1);
 
     char* pathname_cpy;
-    int len = strlen(pathname);
-    MAKE_COPY_BYTES(pathname_cpy, len, pathname);
+    int len = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
+    MAKE_COPY_BYTES(pathname_cpy, len + 1, pathname);
 
     bool_t res = icl_hash_insert(fs->files_stored, pathname_cpy, file) != NULL;
     if(!res)
         free(pathname_cpy);
     else {
         // new copy to have unique ptrs
-        MAKE_COPY_BYTES(pathname_cpy, len, pathname);
+        MAKE_COPY_BYTES(pathname_cpy, len + 1, pathname);
 
         ll_add_head(fs->filenames_stored, pathname_cpy);
         fs->current_used_memory += file_get_size(file);
