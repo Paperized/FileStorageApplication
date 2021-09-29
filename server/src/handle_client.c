@@ -91,7 +91,7 @@ int handle_open_file_req(packet_t* req, packet_t* response)
     file_system_t* fs = get_fs();
 
     acquire_write_lock_fs(fs);
-    if(flags | O_CREATE)
+    if(flags & O_CREATE)
     {
         if(is_file_count_full_fs(fs))
         {
@@ -122,7 +122,7 @@ int handle_open_file_req(packet_t* req, packet_t* response)
             return ENOMEM;
         }
     }
-    else if(flags | O_LOCK)
+    else
     {
         file_stored_t* file = find_file_fs(fs, pathname);
         if(!file)
@@ -135,13 +135,16 @@ int handle_open_file_req(packet_t* req, packet_t* response)
         if(!file_is_opened_by(file, sender))
             file_add_client(file, sender);
 
-        int owner = file_get_lock_owner(file);
-        if(owner == -1)
-            file_set_lock_owner(file, sender);
-        else if(owner != sender)
+        if(flags & O_LOCK)
         {
-            file_enqueue_lock(file, sender);
-            result = -1;
+            int owner = file_get_lock_owner(file);
+            if(owner == -1)
+                file_set_lock_owner(file, sender);
+            else if(owner != sender)
+            {
+                file_enqueue_lock(file, sender);
+                result = -1;
+            }
         }
 
         notify_used_file(file);

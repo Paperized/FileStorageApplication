@@ -68,13 +68,13 @@ int main(int argc, char **argv)
     send_filenames();
     send_file_inside_dirs();
 
+    lock_filenames();
+    remove_filenames();
+
     read_filenames();
     read_n_files();
 
-    lock_filenames();
     unlock_filenames();
-
-    remove_filenames();
 
     int closed = closeConnection(socket_name);
     if(closed == -1)
@@ -277,7 +277,8 @@ void read_filenames()
     while(curr)
     {
         char* curr_filename = node_get_value(curr);
-        read_file(curr_filename);
+        char* filename = get_filename_from_path(curr_filename, strnlen(curr_filename, MAX_PATHNAME_API_LENGTH), NULL);
+        read_file(filename);
 
         curr = node_get_next(curr);
     }
@@ -296,24 +297,25 @@ void remove_filenames()
     while(curr)
     {
         char* curr_filename = node_get_value(curr);
-        remove_file(curr_filename);
+        char* filename = get_filename_from_path(curr_filename, strnlen(curr_filename, MAX_PATHNAME_API_LENGTH), NULL);
+        remove_file(filename);
 
         curr = node_get_next(curr);
     }
 }
 
-int remove_file(const char* pathname)
+int remove_file(const char* filename)
 {
-    int result = API_CALL(openFile(pathname, O_LOCK));
+    int result = API_CALL(openFile(filename, O_LOCK));
     if(result == -1)
     {
         return -1;
     }
 
-    int has_removed = API_CALL(removeFile(pathname));
+    int has_removed = API_CALL(removeFile(filename));
     if(has_removed == -1)
     {
-        result = API_CALL(closeFile(pathname));
+        result = API_CALL(closeFile(filename));
     }
 
     return has_removed;
@@ -332,7 +334,7 @@ void print_help()
             "-d dirname, dirname in which every file reader with -r -R flags will be saved, can only be used with those flags.\n"
             "-t time, time between every request-response from the server\n"
             "-c file1[,file2], which files will be removed from the server separated by a comma (if they exists)\n"
-            "-l file1[,file2], which files will be removed from the server separated by a comma (if they exists)\n"
-            "-u file1[,file2], which files will be removed from the server separated by a comma (if they exists)\n"
+            "-l file1[,file2], which files will be locked from the server separated by a comma (if they exists)\n"
+            "-u file1[,file2], which files will be unlocked from the server separated by a comma (if they exists)\n"
             "-p enable log of each operation\n");
 }
