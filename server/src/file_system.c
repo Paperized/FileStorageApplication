@@ -4,6 +4,18 @@
 #include "replacement_policy.h"
 #include "utils.h"
 
+typedef struct pair_pthread_int {
+    pthread_t pid;
+    int val;
+} pair_pthread_int_t;
+
+struct file_system_metrics {
+    size_t max_memory_reached;
+    size_t max_num_files_reached;
+
+    linked_list_t* max_req_threads;
+};
+
 struct file_system {
     pthread_rwlock_t  rwlock;
     icl_hash_t* files_stored;
@@ -13,6 +25,9 @@ struct file_system {
     size_t current_file_count;
     size_t max_memory_size;
     size_t max_file_count;
+
+    struct file_system_metrics metrics;
+    pthread_rwlock_t    rwlock_metrics;
 };
 
 int(*fs_policy)(file_stored_t*, file_stored_t*) = replacement_policy_fifo;
@@ -28,9 +43,70 @@ file_system_t* create_fs(size_t max_capacity, size_t max_file_count)
     fs->max_memory_size = max_capacity;
     fs->max_file_count = max_file_count;
 
-    INIT_RWLOCK(&fs->rwlock);
+    fs->metrics.max_req_threads = ll_create();
 
+    INIT_RWLOCK(&fs->rwlock);
+    INIT_RWLOCK(&fs->rwlock_metrics);
     return fs;
+}
+
+void set_workers_fs(file_system_t* fs, pthread_t* pids, int n)
+{
+    NRET_IF(!fs || !pids || n <= 0);
+
+    WLOCK_RWLOCK(&fs->rwlock_metrics);
+    if(ll_count(fs->metrics.max_req_threads) > 0)
+        ll_empty(fs->metrics.max_req_threads, free);
+        
+    // match boundaries [0, n - 1]
+    --n;
+    while(n > 0)
+    {
+        struct pair_pthread_int* pair;
+        CHECK_FATAL_EQ(pair, malloc(sizeof(struct pair_pthread_int)), NULL, NO_MEM_FATAL);
+        pair->pid = pids[n];
+        pair->val = 0;
+        ll_add_head(fs->metrics.max_req_threads, pair);
+        --n;
+    }
+    UNLOCK_RWLOCK(&fs->rwlock_metrics);
+}
+
+int notify_worker_handled_req_fs(file_system_t* fs, pthread_t pid)
+{
+    RET_IF(!fs, -1);
+    RET_IF(!fs->metrics.max_req_threads, 0);
+
+    WLOCK_RWLOCK(&fs->rwlock_metrics);
+    node_t* curr = ll_get_head_node(fs->metrics.max_req_threads);
+    pair_pthread_int_t* pair = NULL;
+    while(curr)
+    {
+        pair_pthread_int_t* pair = (pair_pthread_int_t*)node_get_value(curr);
+        if(pair && pair->pid == pid)
+            break;
+        curr = node_get_next(curr);
+    }
+
+    if(curr)
+    {
+        ++pair->val;
+        UNLOCK_RWLOCK(&fs->rwlock_metrics);
+        return 1;
+    }
+
+    UNLOCK_RWLOCK(&fs->rwlock_metrics);
+    return 0;
+}
+
+void shutdown_fs(file_system_t* fs)
+{
+    NRET_IF(!fs);
+
+    struct file_system_metrics* metrics = &fs->metrics;
+    RLOCK_RWLOCK(&fs->rwlock_metrics);
+
+    UNLOCK_RWLOCK(&fs->rwlock_metrics);
 }
 
 void acquire_read_lock_fs(file_system_t* fs)
@@ -137,8 +213,11 @@ int add_file_fs(file_system_t* fs, const char* pathname, file_stored_t* file)
         MAKE_COPY_BYTES(pathname_cpy, len + 1, pathname);
 
         ll_add_head(fs->filenames_stored, pathname_cpy);
-        fs->current_used_memory += file_get_size(file);
+        notify_memory_changed_fs(fs, file_get_size(file));
         ++fs->current_file_count;
+        SET_VAR_RWLOCK(fs->metrics.max_num_files_reached,
+                        MAX(fs->metrics.max_num_files_reached, fs->current_file_count),
+                        &fs->rwlock_metrics);
     }
 
     return res;
@@ -153,7 +232,7 @@ int remove_file_fs(file_system_t* fs, const char* pathname, bool_t is_replacemen
 
     size_t data_size = file_get_size(file);
     ll_remove_str(fs->filenames_stored, (char*)pathname);
-    bool_t res = icl_hash_delete(fs->files_stored, (char*)pathname, free, (void(*)(void*))(is_replacement ? free_file_for_replacement : free_file)) == 0;
+    bool_t res = icl_hash_delete(fs->files_stored, (char*)pathname, free, FREE_FUNC(is_replacement ? free_file_for_replacement : free_file)) == 0;
     if(res)
     {
         fs->current_used_memory -= data_size;
@@ -166,7 +245,13 @@ int remove_file_fs(file_system_t* fs, const char* pathname, bool_t is_replacemen
 int notify_memory_changed_fs(file_system_t* fs, int amount)
 {
     RET_IF(!fs, 0);
+    if(amount == 0)
+        return fs->current_used_memory;
+    
     fs->current_used_memory += amount;
+    SET_VAR_RWLOCK(fs->metrics.max_memory_reached,
+                        MAX(fs->metrics.max_memory_reached, fs->current_used_memory),
+                        &fs->rwlock_metrics);
     return fs->current_used_memory;
 }
 
@@ -174,7 +259,9 @@ void free_fs(file_system_t* fs)
 {
     NRET_IF(!fs);
 
-    icl_hash_destroy(fs->files_stored, free, (void (*)(void*))free_file);
+    icl_hash_destroy(fs->files_stored, free, FREE_FUNC(free_file));
     pthread_rwlock_destroy(&fs->rwlock);
+    pthread_rwlock_destroy(&fs->rwlock_metrics);
+    ll_free(fs->metrics.max_req_threads, free);
     free(fs);
 }

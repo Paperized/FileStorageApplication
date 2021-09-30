@@ -31,7 +31,7 @@ void* ll_to_array(linked_list_t* ll);
 int ll_contains_str(const linked_list_t* ll, char* str);
 int ll_get_max_int(const linked_list_t* ll);
 
-#define FREE_FUNC(func) ((void(*)(void*))func)
+#define FREE_FUNC(func) ((void(*)(void*))(func))
 
 #endif
 

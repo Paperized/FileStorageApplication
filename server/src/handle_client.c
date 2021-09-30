@@ -392,7 +392,7 @@ int handle_nread_files_req(packet_t* req, packet_t* response)
     acquire_read_lock_fs(fs);
     file_stored_t** files = get_files_stored(fs);
     size_t fs_file_count = get_file_count_fs(fs);
-    int files_readed = read_all ? fs_file_count : (MIN(n_to_read, fs_file_count));
+    int files_readed = read_all ? fs_file_count : MIN(n_to_read, fs_file_count);
     write_data(response, &files_readed, sizeof(int));
 
     // match the array boundaries (example: 4 files means -> [0, 3])

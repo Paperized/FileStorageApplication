@@ -38,18 +38,23 @@ pthread_mutex_t server_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 logging_t* server_log;
 
 /** VARIABLE STATUS **/
-bool_t socket_initialized = FALSE;
-bool_t workers_initialized = FALSE;
-bool_t signals_initialized = FALSE;
-bool_t connection_accepter_initialized = FALSE;
-bool_t reader_initialized = FALSE;
+static bool_t socket_initialized = FALSE;
+static bool_t workers_initialized = FALSE;
+static bool_t signals_initialized = FALSE;
+static bool_t connection_accepter_initialized = FALSE;
+static bool_t reader_initialized = FALSE;
 
 /** THREAD IDS **/
-pthread_t* thread_workers_ids;
-pthread_t thread_accepter_id;
-pthread_t thread_reader_id;
+static pthread_t* thread_workers_ids;
+static pthread_t thread_accepter_id;
+static pthread_t thread_reader_id;
 
-unsigned int workers_count = 0;
+static unsigned int workers_count = 0;
+
+pthread_mutex_t curr_client_count_mutex = PTHREAD_MUTEX_INITIALIZER;
+static unsigned int curr_client_connected  = 0;
+
+static unsigned int max_client_alltogether = 0;
 
 #define INITIALIZE_SERVER_FUNCTIONALITY(initializer, status) status = initializer(); \
                                                                 if(status != SERVER_OK) \
@@ -173,6 +178,7 @@ void* handle_client_requests(void* data)
                 break;
         }
 
+        notify_worker_handled_req_fs(get_fs(), curr);
         // res == -1 doesn't send any packet, a future request will take care of this (e.g. locks)
         if(res > -1)
         {
@@ -320,6 +326,15 @@ void* handle_connections(void* params)
             EXEC_WITH_MUTEX(add_logging_entry(server_log, CLIENT_JOINED, new_id, NULL), &server_log_mutex);
 
             COND_SIGNAL(&singleton_server->clients_connected_cond);
+
+            // aggiorno il num dei client correnti
+            LOCK_MUTEX(&curr_client_count_mutex);
+            int num_clients = ++curr_client_connected;
+            UNLOCK_MUTEX(&curr_client_count_mutex);
+
+            // aggiorno eventualmente il massimo num di client concorrenti
+            if(num_clients > max_client_alltogether)
+                max_client_alltogether = num_clients;
         }
     }
 
@@ -371,7 +386,7 @@ void* handle_clients_packets()
         LOCK_MUTEX(&singleton_server->clients_list_mutex);
         node_t* curr_client = ll_get_head_node(singleton_server->clients_connected);
 
-        while(curr_client != NULL)
+        while(curr_client)
         {
             int curr_session = *((int*)node_get_value(curr_client));
 
@@ -391,6 +406,7 @@ void* handle_clients_packets()
                         curr_client = temp;
                         
                         EXEC_WITH_MUTEX(add_logging_entry(server_log, CLIENT_LEFT, curr_session, NULL), &server_log_mutex);
+                        SET_VAR_MUTEX(curr_client_connected, curr_client_connected - 1, &curr_client_count_mutex);
 
                         free(req);
                         continue;
@@ -463,6 +479,11 @@ int server_wait_for_threads()
         pthread_join(thread_reader_id, NULL);
     }
 
+    // log max clients simultaniously (max_clients_alltoghether)
+
+    // log fs metrics
+    shutdown_fs(get_fs());
+
     return SERVER_OK;
 }
 
@@ -472,7 +493,7 @@ int server_cleanup()
 
     free_fs(singleton_server->fs);
     ll_free(singleton_server->clients_connected, free);
-    free_q(singleton_server->requests_queue, (void(*)(void*))destroy_packet);
+    free_q(singleton_server->requests_queue, FREE_FUNC(destroy_packet));
     free(thread_workers_ids);
     free(p_on_file_deleted_locks);
     free(p_on_file_given_lock);
@@ -485,6 +506,7 @@ int server_cleanup()
     pthread_mutex_destroy(&singleton_server->clients_list_mutex);
     pthread_mutex_destroy(&singleton_server->clients_set_mutex);
     pthread_mutex_destroy(&singleton_server->requests_queue_mutex);
+    pthread_mutex_destroy(&curr_client_count_mutex);
 
     pthread_cond_destroy(&singleton_server->clients_connected_cond);
     pthread_cond_destroy(&singleton_server->request_received_cond);
@@ -510,6 +532,9 @@ int start_server()
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_connection_accepter, lastest_status);
     // Initialize and run reader
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_reader, lastest_status);
+
+    // needed for threads metrics
+    set_workers_fs(singleton_server->fs, thread_workers_ids, workers_count);
 
     PRINT_INFO("Server started with PID:%d.", getpid());
 

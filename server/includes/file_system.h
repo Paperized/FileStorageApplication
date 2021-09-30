@@ -10,6 +10,7 @@ extern int(*fs_policy)(file_stored_t*, file_stored_t*);
 
 file_system_t* create_fs(size_t max_capacity_mem, size_t max_file_count);
 void set_policy_fs(file_system_t* fs, char* policy);
+void set_workers_fs(file_system_t* fs, pthread_t* pids, int n);
 
 void acquire_read_lock_fs(file_system_t* fs);
 void acquire_write_lock_fs(file_system_t* fs);
@@ -27,6 +28,9 @@ file_stored_t* find_file_fs(file_system_t* fs, const char* pathname);
 int add_file_fs(file_system_t* fs, const char* pathname, file_stored_t* file);
 int remove_file_fs(file_system_t* fs, const char* pathname, bool_t keep_data);
 int notify_memory_changed_fs(file_system_t* fs, int amount);
+int notify_worker_handled_req_fs(file_system_t* fs, pthread_t pid);
+
+void shutdown_fs(file_system_t* fs);
 
 void free_fs(file_system_t* fs);
 

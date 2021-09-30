@@ -74,7 +74,7 @@ typedef enum bool { FALSE, TRUE } bool_t;
                                                                             return ret_value; \
                                                                         }
 
-#define RET_IF(cond, val) if(cond) return val
+#define RET_IF(cond, val) if(cond) return (val)
 #define NRET_IF(cond) if(cond) return
 
 #define INIT_MUTEX(m) CHECK_FATAL_EVAL(pthread_mutex_init(m, NULL) != 0, "Mutex init failed!")
@@ -106,11 +106,20 @@ typedef enum bool { FALSE, TRUE } bool_t;
                                       output = expr; \
                                       UNLOCK_MUTEX(m)
 
+#define SET_VAR_RWLOCK(var, expr, m)     WLOCK_RWLOCK(m); \
+                                        var = expr; \
+                                        UNLOCK_RWLOCK(m)
+
+#define GET_VAR_RWLOCK(expr, output, m) RLOCK_RWLOCK(m); \
+                                      output = expr; \
+                                      UNLOCK_RWLOCK(m)
+
 #define EXEC_WITH_MUTEX(istr, m) LOCK_MUTEX(m); \
                                         istr; \
                                         UNLOCK_MUTEX(m)
 
-#define MIN(x, y) x < y ? x : y
+#define MIN(x, y) (x < y ? x : y)
+#define MAX(x, y) (x > y ? x : y)
 
 int read_file_util(const char* pathname, void** buffer, size_t* size);
 int write_file_util(const char* pathname, void* buffer, size_t size);
