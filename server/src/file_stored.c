@@ -78,12 +78,14 @@ void free_file(file_stored_t* file)
     free_q(file->lock_queue, free);
 
     pthread_rwlock_destroy(&file->rwlock);
+    free(file);
 }
 
 void free_file_for_replacement(file_stored_t* file)
 {
     ll_free(file->opened_by, free);
     pthread_rwlock_destroy(&file->rwlock);
+    free(file);
 }
 
 int file_add_client(file_stored_t* file, int client)
@@ -123,7 +125,13 @@ int file_close_client(file_stored_t* file, int client)
         }
     }
 
-    return remove_node ? ll_remove_node(file->opened_by, remove_node) : -1;
+    if(remove_node)
+    {
+        free(node_get_value(remove_node));
+        return ll_remove_node(file->opened_by, remove_node);
+    }
+
+    return -1;
 }
 
 int file_enqueue_lock(file_stored_t* file, int client)
@@ -155,8 +163,10 @@ int file_delete_lock_client(file_stored_t* file, int client)
 
     FOREACH_Q(file->lock_queue)
     {
-        if(*VALUE_IT_Q(int*) == client)
+        int* client_ptr = VALUE_IT_Q(int*);
+        if(*client_ptr == client)
         {
+            free(client_ptr);
             remove_node_q(file->lock_queue, CURR_IT_LL);
             return 1;
         }

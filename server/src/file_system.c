@@ -96,8 +96,17 @@ void shutdown_fs(file_system_t* fs)
 {
     NRET_IF(!fs);
 
+    size_t files_str_len;
+    RLOCK_RWLOCK(&fs->rwlock);
+    char* files_printable = ll_explode_str(fs->filenames_stored, ',', &files_str_len);
+    UNLOCK_RWLOCK(&fs->rwlock);
+
+    LOG_EVENT("FINAL_METRICS last files remaining: [%s]", files_str_len > 0 ? files_printable : "NONE");
+    free(files_printable);
+
     struct file_system_metrics* metrics = &fs->metrics;
     RLOCK_RWLOCK(&fs->rwlock_metrics);
+
     PRINT_INFO_DEBUG("%zu max file count.", metrics->max_num_files_reached);
     LOG_EVENT("FINAL_METRICS Max file count %zu!", metrics->max_num_files_reached);
     PRINT_INFO_DEBUG("%zuB max storage size.", metrics->max_memory_reached);
@@ -105,6 +114,7 @@ void shutdown_fs(file_system_t* fs)
 
     FOREACH_LL(metrics->max_req_threads) {
         pair_pthread_int_t* pair = VALUE_IT_LL(pair_pthread_int_t*);
+        
         PRINT_INFO_DEBUG("Thread %lu handled %d requests!", pair->pid, pair->val);
         LOG_EVENT("FINAL_METRICS Thread %lu handled %d requests!", pair->pid, pair->val);
     }
@@ -140,7 +150,7 @@ file_stored_t** get_files_stored(file_system_t* fs)
     RET_IF(!fs, NULL);
 
     file_stored_t** files;
-    CHECK_FATAL_EQ(files, malloc(sizeof(file_system_t*) * ll_count(fs->filenames_stored)), NULL, NO_MEM_FATAL);
+    CHECK_FATAL_EQ(files, malloc(sizeof(file_stored_t*) * ll_count(fs->filenames_stored)), NULL, NO_MEM_FATAL);
     
     int i = 0;
     FOREACH_LL(fs->filenames_stored) {
@@ -276,6 +286,7 @@ void free_fs(file_system_t* fs)
     NRET_IF(!fs);
 
     icl_hash_destroy(fs->files_stored, free, FREE_FUNC(free_file));
+    ll_free(fs->filenames_stored, free);
     pthread_rwlock_destroy(&fs->rwlock);
     pthread_rwlock_destroy(&fs->rwlock_metrics);
     ll_free(fs->metrics.max_req_threads, free);

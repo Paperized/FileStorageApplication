@@ -91,13 +91,17 @@ packet_t* read_packet_from_fd(int fd)
     packet_len len;
     CHECK_READ_BYTES(byte_read, fd, &len, sizeof(packet_len), "Cannot read packet_len! fd(%d)", fd);
 
-    char* content;
-    CHECK_FATAL_ERRNO(content, malloc(len), NO_MEM_FATAL);
-    CHECK_READ_BYTES(byte_read, fd, content, len, "Cannot read packet_body! fd(%d)", fd);
+    char* content = NULL;
+    if(len > 0)
+    {
+        CHECK_FATAL_ERRNO(content, malloc(len), NO_MEM_FATAL);
+        CHECK_READ_BYTES(byte_read, fd, content, len, "Cannot read packet_body! fd(%d)", fd);
+    }
 
     packet_t* new_packet = create_packet(op, 0);
     new_packet->header.fd_sender = fd;
     new_packet->header.len = len;
+    new_packet->capacity = len;
     new_packet->content = content;
     return new_packet;
 }
@@ -132,8 +136,7 @@ void destroy_packet(packet_t* p)
 {
     NRET_IF(!p);
 
-    if(p->content)
-        free(p->content);
+    free(p->content);
     free(p);
 }
 

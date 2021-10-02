@@ -68,4 +68,5 @@ void free_netfile(network_file_t* r)
     free(r->pathname);
     free(r->data);
     free_q(r->notify_lock_queue, free);
+    free(r);
 }

@@ -57,6 +57,8 @@ configuration_params_t* load_config_params(const char* config_path_name)
     fscanf(fptr, "SERVER_LOG_NAME=%108s", config->log_name);
     config->log_name[MAX_PATHNAME_API_LENGTH] = '\0';
 
+    fclose(fptr);
+
     return config;
 }
 

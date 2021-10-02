@@ -89,4 +89,5 @@ void free_log(logging_t* log)
     NRET_IF(!log);
 
     pthread_mutex_destroy(&log->write_access_m);
+    free(log);
 }

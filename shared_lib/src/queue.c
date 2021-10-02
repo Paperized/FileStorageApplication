@@ -65,6 +65,7 @@ void free_q(queue_t* queue, void (*free_func)(void*))
     NRET_IF(!queue);
 
     ll_free(queue->internal_list, free_func);
+    free(queue);
 }
 
 size_t count_qsafe(queue_t* queue, pthread_mutex_t* m)

@@ -8,7 +8,7 @@
 #include "network_file.h"
 
 #define CHECK_READ_PATH(error, req, output, is_mandatory, sender, action)\
-                                error = read_data_str(req, output, MAX_PATHNAME_API_LENGTH); \
+                                error = read_data_str(req, output, MAX_PATHNAME_API_LENGTH + 1); \
                                 if(error == -1) { \
                                     PRINT_WARNING_DEBUG(EINVAL, "Cannot read '" #output "' string inside packet! fd(%d)", sender); \
                                     return return_response_error(action, NULL, sender, EINVAL); \

@@ -420,6 +420,7 @@ void* handle_clients_packets()
                         EXEC_WITH_MUTEX(FD_CLR(curr_session, &singleton_server->clients_connected_set), &singleton_server->clients_set_mutex);
 
                         node_t* temp = node_get_next(curr_client);
+                        free(node_get_value(curr_client));
                         ll_remove_node(singleton_server->clients_connected, curr_client);
                         curr_client = temp;
 
@@ -431,7 +432,7 @@ void* handle_clients_packets()
 
                         SET_VAR_MUTEX(curr_client_connected, curr_client_connected - 1, &curr_client_count_mutex);
 
-                        free(req);
+                        destroy_packet(req);
                         continue;
                     }
 
@@ -445,8 +446,8 @@ void* handle_clients_packets()
 
                     UNLOCK_MUTEX(&singleton_server->requests_queue_mutex);
                 }
-
-                // we ignore failed packets returned by the read
+                else
+                    destroy_packet(req);
             }
 
             curr_client = node_get_next(curr_client);
@@ -520,8 +521,8 @@ int server_cleanup()
     ll_free(singleton_server->clients_connected, free);
     free_q(singleton_server->requests_queue, FREE_FUNC(destroy_packet));
     free(thread_workers_ids);
-    free(p_on_file_deleted_locks);
-    free(p_on_file_given_lock);
+    destroy_packet(p_on_file_deleted_locks);
+    destroy_packet(p_on_file_given_lock);
 
     PRINT_INFO("Closing socket and removing it.");
     close(singleton_server->server_socket_id);
@@ -540,6 +541,7 @@ int server_cleanup()
     config_get_socket_name(singleton_server->config, socket_name);
     remove(socket_name);
 
+    free(singleton_server);
     // this function returns only SERVER_OK but can be expanded with other return values
     return SERVER_OK;
 }

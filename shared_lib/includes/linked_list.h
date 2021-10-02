@@ -28,6 +28,7 @@ node_t* node_get_next(node_t* node);
 
 void* ll_to_array(linked_list_t* ll);
 
+char* ll_explode_str(linked_list_t* ll, char divisor, size_t* len_output);
 int ll_contains_str(const linked_list_t* ll, char* str);
 int ll_get_max_int(const linked_list_t* ll);
 
