@@ -64,11 +64,26 @@ static unsigned int max_client_alltogether = 0;
                                                                     return status; \
                                                                 }
 
-#define BREAK_ON_FAST_QUIT(qv, m)  if((qv = get_quit_signal()) == S_FAST) \
-                                    { \
-                                        UNLOCK_MUTEX(m); \
-                                        break; \
-                                    }
+#define BREAK_ON_CLOSE_CONDITION(b_output, m)  if((b_output = threads_must_close())) \
+                                                { \
+                                                    UNLOCK_MUTEX(m); \
+                                                    break; \
+                                                }
+
+static inline bool_t threads_must_close()
+{
+    quit_signal_t signal;
+    GET_VAR_MUTEX(singleton_server->quit_signal, signal, &singleton_server->quit_signal_mutex);
+
+    if(signal == S_FAST)
+        return TRUE;
+    else if(signal == S_NONE)
+        return FALSE;
+
+    unsigned int clients_connected;
+    GET_VAR_MUTEX(curr_client_connected, clients_connected, &curr_client_count_mutex);
+    return clients_connected <= 0;
+}
 
 quit_signal_t get_quit_signal()
 {
@@ -97,23 +112,18 @@ void* handle_client_requests(void* data)
     pthread_t curr = pthread_self();
 
     PRINT_INFO_DEBUG("Running worker thread %lu.", curr);
-    quit_signal_t quit_signal;
-    while((quit_signal = get_quit_signal()) != S_FAST)
+    bool_t must_close = FALSE;
+    while(!threads_must_close())
     {
         LOCK_MUTEX(&singleton_server->requests_queue_mutex);
         while(count_q(singleton_server->requests_queue) == 0)
         {
-            if(pthread_cond_wait(&singleton_server->request_received_cond, &singleton_server->requests_queue_mutex) != 0)
-            {
-                UNLOCK_MUTEX(&singleton_server->requests_queue_mutex);
-                continue;
-            }
-
-            BREAK_ON_FAST_QUIT(quit_signal, &singleton_server->requests_queue_mutex);
+            COND_WAIT(&singleton_server->request_received_cond, &singleton_server->requests_queue_mutex);
+            BREAK_ON_CLOSE_CONDITION(must_close, &singleton_server->requests_queue_mutex);
         }
 
         // quit worker loop if signal
-        if(quit_signal == S_FAST)
+        if(must_close)
             break;
 
         packet_t* request = (packet_t*)dequeue(singleton_server->requests_queue);
@@ -121,7 +131,7 @@ void* handle_client_requests(void* data)
 
         if(request == NULL)
         {
-            PRINT_WARNING(EINVAL, "[W/%lu] Request null, skipping.", curr);
+            PRINT_WARNING_DEBUG(EINVAL, "[W/%lu] Request null, skipping.", curr);
             continue;
         }
 
@@ -361,11 +371,11 @@ int initialize_connection_accepter()
 
 void* handle_clients_packets()
 {
-    quit_signal_t quit_signal = S_NONE;
-    while((quit_signal= get_quit_signal()) != S_FAST)
-    {
-        struct timeval tv;
+    bool_t must_close;
+    struct timeval tv;
 
+    while(!threads_must_close())
+    {
         // wait 0.1s per check
         tv.tv_sec = 0;
         tv.tv_usec = 100000;
@@ -375,10 +385,10 @@ void* handle_clients_packets()
         while((n_clients = ll_count(singleton_server->clients_connected)) == 0)
         {
             COND_WAIT(&singleton_server->clients_connected_cond, &singleton_server->clients_list_mutex);
-            BREAK_ON_FAST_QUIT(quit_signal, &singleton_server->clients_list_mutex);
+            BREAK_ON_CLOSE_CONDITION(must_close, &singleton_server->clients_list_mutex);
         }
 
-        if(quit_signal == S_FAST)
+        if(must_close)
             break;
 
         int max_fd_clients = ll_get_max_int(singleton_server->clients_connected);
@@ -417,7 +427,7 @@ void* handle_clients_packets()
                         notify_client_disconnected_fs(singleton_server->fs, curr_session);
                         release_write_lock_fs(singleton_server->fs);
                         
-                        LOG_EVENT("OP_CLOSE_CONN client disconnected with id %d!", curr_session);
+                        LOG_EVENT("OP_CLOSE_CONN client disconnected with id %d", curr_session);
 
                         SET_VAR_MUTEX(curr_client_connected, curr_client_connected - 1, &curr_client_count_mutex);
 
@@ -470,32 +480,29 @@ int server_wait_for_threads()
     {
         pthread_cancel(thread_accepter_id);
         pthread_join(thread_accepter_id, NULL);
-        LOG_EVENT("Quitting thread accepter! PID: %lu!", thread_accepter_id);
-    }
-
-    if(closing_signal == S_FAST)
-    {
-        COND_BROADCAST(&singleton_server->request_received_cond);
-    }
-
-    PRINT_INFO("Joining workers thread.");
-    for(int i = 0; i < workers_count; ++i)
-    {
-        //if(closing_signal == S_FAST)
-        //    pthread_cancel(thread_workers_ids[i]);
-
-        pthread_join(thread_workers_ids[i], NULL);
+        LOG_EVENT("Quitting thread accepter! PID: %lu", thread_accepter_id);
     }
 
     // The thread might be locked in a wait
     if(closing_signal == S_FAST)
     {
-        PRINT_INFO("Joining reader thread.");
+        PRINT_INFO_DEBUG("Joining reader thread.");
         COND_SIGNAL(&singleton_server->clients_connected_cond);
-        pthread_join(thread_reader_id, NULL);
+    }
+
+    pthread_join(thread_reader_id, NULL);
+
+    // either is S_FAST or S_SOFT we need to broadcast workers since the reader already finished
+    COND_BROADCAST(&singleton_server->request_received_cond);
+
+    PRINT_INFO_DEBUG("Joining workers thread.");
+    for(int i = 0; i < workers_count; ++i)
+    {
+        pthread_join(thread_workers_ids[i], NULL);
     }
 
     // log max clients simultaniously (max_clients_alltoghether)
+    LOG_EVENT("FINAL_METRICS Max clients connected alltogether %u!", max_client_alltogether);
 
     // log fs metrics
     shutdown_fs(singleton_server->fs);
