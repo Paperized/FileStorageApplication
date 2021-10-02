@@ -1,46 +1,30 @@
 #ifndef _LOGGING_H_
 #define _LOGGING_H_
 
-#include "linked_list.h"
+#include "utils.h"
 #include "server_api_utils.h"
-#include <stdlib.h>
-#include <string.h>
 
-typedef enum logging_event {
-    CLIENT_JOINED,
-    CLIENT_LEFT,
-    FILE_OPENED,
-    FILE_ADDED,
-    FILE_REMOVED,
-    FILE_WROTE,
-    FILE_APPEND,
-    FILE_READ,
-    FILE_NREAD,
-    FILE_CLOSED,
-    CACHE_REPLACEMENT
-} logging_event_t;
-
-typedef struct logging_entry {
-    logging_event_t type;
-    int fd;
-    void* value;
-} logging_entry_t;
+#define MAX_LOG_LINE_LENGTH 500
 
 typedef struct logging {
-    linked_list_t* entry_list;
-    size_t max_server_size;
+    FILE* f_ptr;
+    char log_pathname[MAX_PATHNAME_API_LENGTH + 1];
+    pthread_mutex_t write_access_m;
+
+    char __internal_used_str[MAX_LOG_LINE_LENGTH + 1];
 } logging_t;
 
 logging_t* create_log();
+int start_log(logging_t* log, const char* log_path);
+int stop_log(logging_t* log);
 void free_log(logging_t* log);
 
-int add_logging_entry(logging_t* lg, logging_event_t event, int fd, void* value);
-int add_logging_entry_str(logging_t* lg, logging_event_t event, int fd, char* value);
-int add_logging_entry_int(logging_t* lg, logging_event_t event, int fd, int value);
-
-void print_logging(logging_t* lg);
-
-#define UPDATE_LOGGING_MAX_SIZE(lg, new_size) if(lg->max_server_size < new_size) \
-                                                lg->max_server_size = new_size;
+int __internal_write_log(logging_t* log);
+#define LOG_FORMATTED_LINE(log, message, ...) { \
+                                                LOCK_MUTEX(&log->write_access_m); \
+                                                snprintf(log->__internal_used_str, MAX_LOG_LINE_LENGTH, message "\n", ## __VA_ARGS__); \
+                                                __internal_write_log(log); \
+                                                UNLOCK_MUTEX(&log->write_access_m); \
+                                            }
 
 #endif

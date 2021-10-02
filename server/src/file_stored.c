@@ -100,32 +100,30 @@ bool_t file_is_opened_by(file_stored_t* file, int client)
 {
     RET_IF(!file, FALSE);
 
-    node_t* curr = ll_get_head_node(file->opened_by);
-    while(curr)
+    FOREACH_LL(file->opened_by)
     {
-        if(*((int*)node_get_value(curr)) == client)
-            break;
-
-        curr = node_get_next(curr);
+        if(*VALUE_IT_LL(int*) == client)
+            return TRUE;
     }
 
-    return curr != NULL;
+    return FALSE;
 }
 
-int file_remove_client(file_stored_t* file, int client)
+int file_close_client(file_stored_t* file, int client)
 {
     RET_IF(!file, -1);
 
-    node_t* curr = ll_get_head_node(file->opened_by);
-    while(curr)
+    node_t* remove_node = NULL;
+    FOREACH_LL(file->opened_by)
     {
-        if(*((int*)node_get_value(curr)) == client)
+        if(*VALUE_IT_LL(int*) == client)
+        {
+            remove_node = CURR_IT_LL;
             break;
-
-        curr = node_get_next(curr);
+        }
     }
 
-    return curr ? ll_remove_node(file->opened_by, curr) : -1;
+    return remove_node ? ll_remove_node(file->opened_by, remove_node) : -1;
 }
 
 int file_enqueue_lock(file_stored_t* file, int client)
@@ -140,18 +138,34 @@ int file_enqueue_lock(file_stored_t* file, int client)
 
 bool_t file_is_client_already_queued(file_stored_t* file, int client)
 {
-    RET_IF(!file, -1);
+    RET_IF(!file, FALSE);
 
-    node_t* curr = get_head_node_q(file->lock_queue);
-    while(curr)
+    FOREACH_Q(file->lock_queue)
     {
-        if(*((int*)node_get_value(curr)) == client)
-            break;
-
-        curr = node_get_next(curr);
+        if(*VALUE_IT_Q(int*) == client)
+            return TRUE;
     }
 
-    return curr != NULL;
+    return FALSE;
+}
+
+int file_delete_lock_client(file_stored_t* file, int client)
+{
+    RET_IF(!file, -1);
+
+    FOREACH_Q(file->lock_queue)
+    {
+        if(*VALUE_IT_Q(int*) == client)
+        {
+            remove_node_q(file->lock_queue, CURR_IT_LL);
+            return 1;
+        }
+    }
+
+    if(file->locked_by == client)
+        file->locked_by = file_dequeue_lock(file);
+
+    return 0;
 }
 
 int file_dequeue_lock(file_stored_t* file)

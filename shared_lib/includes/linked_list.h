@@ -32,6 +32,9 @@ int ll_contains_str(const linked_list_t* ll, char* str);
 int ll_get_max_int(const linked_list_t* ll);
 
 #define FREE_FUNC(func) ((void(*)(void*))(func))
+#define FOREACH_LL(ll) for(node_t* local_node = ll_get_head_node(ll); local_node != NULL; local_node = node_get_next(local_node))
+#define VALUE_IT_LL(type) ((type)node_get_value(local_node))
+#define CURR_IT_LL local_node
 
 #endif
 

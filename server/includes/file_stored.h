@@ -22,10 +22,11 @@ int file_get_use_frequency(file_stored_t* file);
 
 int file_add_client(file_stored_t* file, int client);
 bool_t file_is_opened_by(file_stored_t* file, int client);
-int file_remove_client(file_stored_t* file, int client);
+int file_close_client(file_stored_t* file, int client);
 
 int file_enqueue_lock(file_stored_t* file, int client);
 bool_t file_is_client_already_queued(file_stored_t* file, int client);
+int file_delete_lock_client(file_stored_t* file, int client);
 int file_dequeue_lock(file_stored_t* file);
 
 void file_set_lock_owner(file_stored_t* file, int lock_owner);

@@ -9,6 +9,7 @@ struct configuration_params {
     unsigned int bytes_storage_available;
     unsigned int max_files_num;
     char socket_name[MAX_PATHNAME_API_LENGTH + 1];
+    char log_name[MAX_PATHNAME_API_LENGTH + 1];
     char policy_type[MAX_POLICY_LENGTH + 1];
     unsigned int backlog_sockets_num;
 };
@@ -25,6 +26,7 @@ void print_config_params(const configuration_params_t* config)
     printf("Max files number: %u\n", config->max_files_num);
     printf("Policy type: %s\n", config->policy_type);
     printf("Backlog sockets count: %u\n", config->backlog_sockets_num);
+    printf("Log File Name: %s\n", config->log_name);
 
     printf("****************************************\n");
 }
@@ -52,6 +54,9 @@ configuration_params_t* load_config_params(const char* config_path_name)
 
     fscanf(fptr, "SERVER_BACKLOG_NUM=%u\n", &config->backlog_sockets_num);
 
+    fscanf(fptr, "SERVER_LOG_NAME=%108s", config->log_name);
+    config->log_name[MAX_PATHNAME_API_LENGTH] = '\0';
+
     return config;
 }
 
@@ -62,30 +67,64 @@ void free_config(configuration_params_t* config)
 
 unsigned int config_get_num_workers(const configuration_params_t* config)
 {
+    RET_IF(!config, 0);
+
     return config->thread_workers;
 }
 
 unsigned int config_get_max_server_size(const configuration_params_t* config)
 {
+    RET_IF(!config, 0);
+
     return config->bytes_storage_available;
 }
 
 unsigned int config_get_max_files_count(const configuration_params_t* config)
 {
+    RET_IF(!config, 0);
+
     return config->max_files_num;
 }
 
 unsigned int config_get_backlog_sockets_num(const configuration_params_t* config)
 {
+    RET_IF(!config, 0);
+
     return config->backlog_sockets_num;
 }
 
-void config_get_socket_name(const configuration_params_t* config, char output[MAX_PATHNAME_API_LENGTH])
+void config_get_socket_name(const configuration_params_t* config, char output[MAX_PATHNAME_API_LENGTH + 1])
 {
-    strncpy(output, config->socket_name, MAX_PATHNAME_API_LENGTH);
+    if(!config)
+    {
+        if(output)
+            output[0] = '\0';
+        return;
+    }
+
+    memcpy(output, config->socket_name, MAX_PATHNAME_API_LENGTH + 1);
 }
 
-void config_get_policy_name(const configuration_params_t* config, char output[MAX_POLICY_LENGTH])
+void config_get_log_name(const configuration_params_t* config, char output[MAX_PATHNAME_API_LENGTH + 1])
 {
-    strncpy(output, config->policy_type, MAX_POLICY_LENGTH);
+    if(!config)
+    {
+        if(output)
+            output[0] = '\0';
+        return;
+    }
+
+    memcpy(output, config->log_name, MAX_PATHNAME_API_LENGTH + 1);
+}
+
+void config_get_policy_name(const configuration_params_t* config, char output[MAX_POLICY_LENGTH + 1])
+{
+    if(!config)
+    {
+        if(output)
+            output[0] = '\0';
+        return;
+    }
+
+    memcpy(output, config->policy_type, MAX_POLICY_LENGTH + 1);
 }

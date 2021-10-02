@@ -16,6 +16,13 @@ queue_t* create_q()
     return queue;
 }
 
+int remove_node_q(queue_t* queue, node_t* node)
+{
+    RET_IF(!queue || !node, -1);
+
+    return ll_remove_node(queue->internal_list, node);
+}
+
 node_t* get_head_node_q(queue_t* queue)
 {
     RET_IF(!queue, NULL);

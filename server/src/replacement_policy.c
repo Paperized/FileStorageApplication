@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "replacement_policy.h"
 #include "network_file.h"
 

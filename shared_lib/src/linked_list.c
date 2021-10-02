@@ -173,27 +173,23 @@ int ll_remove_node(linked_list_t* ll, node_t* node)
 
     node_t* curr = ll->head;
     node_t* prev = NULL;
-    while(curr != node && curr != NULL)
+    while(curr && curr != node)
     {
         prev = curr;
         curr = curr->next;
     }
 
     if(curr == NULL)
-        return -1;
+        return 0;
 
     if(prev == NULL)
-    {
-        ll->head = ll->tail = NULL;
-    }
+        ll->head = curr->next;
     else
-    {
         prev->next = node->next;
-    }
 
     ll->count -= 1;
     free(node);
-    return 0;
+    return 1;
 }
 
 void ll_remove_str(linked_list_t* ll, char* str)

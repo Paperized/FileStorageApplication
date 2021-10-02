@@ -13,6 +13,8 @@ int enqueue(queue_t* queue, void* value);
 void* dequeue(queue_t* queue);
 void empty_q(queue_t* queue, void (*free_func)(void*));
 
+int remove_node_q(queue_t* queue, node_t* node);
+
 node_t* get_head_node_q(queue_t* queue);
 
 void free_q(queue_t* queue, void (*free_func)(void*));
@@ -23,8 +25,7 @@ void* dequeue_qsafe(queue_t* queue, pthread_mutex_t* m);
 void empty_qsafe(queue_t* queue, void (*free_func)(void*), pthread_mutex_t* m);
 void free_qsafe(queue_t* queue, void (*free_func)(void*), pthread_mutex_t* m);
 
-#define enqueue_m(queue, value) enqueue(queue, (void*) value)
-#define enqueue_safe_m(queue, value, m) enqueue_safe(queue, (void*) value, m)
-#define cast_to(type, value) (type)value
+#define FOREACH_Q(q) for(node_t* local_node = get_head_node_q(q); local_node != NULL; local_node = node_get_next(local_node))
+#define VALUE_IT_Q(type) ((type)node_get_value(local_node))
 
 #endif

@@ -77,26 +77,19 @@ int notify_worker_handled_req_fs(file_system_t* fs, pthread_t pid)
     RET_IF(!fs, -1);
     RET_IF(!fs->metrics.max_req_threads, 0);
 
+    int has_inc = 0;
     WLOCK_RWLOCK(&fs->rwlock_metrics);
-    node_t* curr = ll_get_head_node(fs->metrics.max_req_threads);
-    pair_pthread_int_t* pair = NULL;
-    while(curr)
-    {
-        pair_pthread_int_t* pair = (pair_pthread_int_t*)node_get_value(curr);
+    FOREACH_LL(fs->metrics.max_req_threads) {
+        pair_pthread_int_t* pair = VALUE_IT_LL(pair_pthread_int_t*);
         if(pair && pair->pid == pid)
+        {
+            ++pair->val;
+            has_inc = 1;
             break;
-        curr = node_get_next(curr);
+        }
     }
-
-    if(curr)
-    {
-        ++pair->val;
-        UNLOCK_RWLOCK(&fs->rwlock_metrics);
-        return 1;
-    }
-
     UNLOCK_RWLOCK(&fs->rwlock_metrics);
-    return 0;
+    return has_inc;
 }
 
 void shutdown_fs(file_system_t* fs)
@@ -105,7 +98,13 @@ void shutdown_fs(file_system_t* fs)
 
     struct file_system_metrics* metrics = &fs->metrics;
     RLOCK_RWLOCK(&fs->rwlock_metrics);
+    PRINT_INFO_DEBUG("%zu max file count.", metrics->max_num_files_reached);
+    PRINT_INFO_DEBUG("%zuB max storage size.", metrics->max_memory_reached);
 
+    FOREACH_LL(metrics->max_req_threads) {
+        pair_pthread_int_t* pair = VALUE_IT_LL(pair_pthread_int_t*);
+        PRINT_INFO_DEBUG("Thread %lu handled %d requests!", pair->pid, pair->val);
+    }
     UNLOCK_RWLOCK(&fs->rwlock_metrics);
 }
 
@@ -139,11 +138,11 @@ file_stored_t** get_files_stored(file_system_t* fs)
 
     file_stored_t** files;
     CHECK_FATAL_EQ(files, malloc(sizeof(file_system_t*) * ll_count(fs->filenames_stored)), NULL, NO_MEM_FATAL);
+    
     int i = 0;
-    node_t* curr = ll_get_head_node(fs->filenames_stored);
-    while(curr) {
-        files[i++] = icl_hash_find(fs->files_stored, node_get_value(curr));
-        curr = node_get_next(curr);
+    FOREACH_LL(fs->filenames_stored) {
+        char* filename = VALUE_IT_LL(char*);
+        files[i++] = icl_hash_find(fs->files_stored, filename);
     }
 
     return files;
@@ -253,6 +252,20 @@ int notify_memory_changed_fs(file_system_t* fs, int amount)
                         MAX(fs->metrics.max_memory_reached, fs->current_used_memory),
                         &fs->rwlock_metrics);
     return fs->current_used_memory;
+}
+
+int notify_client_disconnected_fs(file_system_t* fs, int fd)
+{
+    RET_IF(!fs || fd < 0, -1);
+
+    FOREACH_LL(fs->filenames_stored)
+    {
+        file_stored_t* file = icl_hash_find(fs->files_stored, VALUE_IT_LL(void*));
+        file_close_client(file, fd);
+        file_delete_lock_client(file, fd);
+    }
+
+    return 0;
 }
 
 void free_fs(file_system_t* fs)

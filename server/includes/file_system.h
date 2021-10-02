@@ -29,6 +29,7 @@ int add_file_fs(file_system_t* fs, const char* pathname, file_stored_t* file);
 int remove_file_fs(file_system_t* fs, const char* pathname, bool_t keep_data);
 int notify_memory_changed_fs(file_system_t* fs, int amount);
 int notify_worker_handled_req_fs(file_system_t* fs, pthread_t pid);
+int notify_client_disconnected_fs(file_system_t* fs, int fd);
 
 void shutdown_fs(file_system_t* fs);
 
