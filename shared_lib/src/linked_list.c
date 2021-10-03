@@ -39,6 +39,7 @@ linked_list_t* ll_create()
     linked_list_t* new_list;
     CHECK_FATAL_ERRNO(new_list, malloc(sizeof(linked_list_t)), NO_MEM_FATAL);
     memset(new_list, 0, sizeof(linked_list_t));
+
     return new_list;
 }
 
@@ -114,6 +115,8 @@ void ll_remove_first(linked_list_t* ll, void** value)
 
 void ll_remove_last(linked_list_t* ll, void** value)
 {
+    NRET_IF(!ll);
+
     if(ll->count <= 0)
     {
         if(value != NULL)
@@ -122,10 +125,10 @@ void ll_remove_last(linked_list_t* ll, void** value)
     }
 
     node_t* last = ll->tail;
-    if(value != NULL)
+    if(value)
         *value = last->value;
 
-    if(last == ll->head)
+    if(ll->count == 1)
     {
         ll->head = ll->tail = NULL;
     }
@@ -183,12 +186,17 @@ int ll_remove_node(linked_list_t* ll, node_t* node)
         return 0;
 
     if(prev == NULL)
+    {
         ll->head = curr->next;
+        if(ll->head == NULL)
+            ll->tail = NULL;
+    }
     else
         prev->next = node->next;
 
     ll->count -= 1;
     free(node);
+
     return 1;
 }
 
@@ -198,23 +206,60 @@ void ll_remove_str(linked_list_t* ll, char* str)
 
     node_t* curr = ll->head;
     node_t* prev = NULL;
-    while(curr != NULL && strncmp(curr->value, str, 108) != 0)
+    while(curr && strncmp(curr->value, str, 108) != 0)
     {
         prev = curr;
         curr = curr->next;
     }
 
-    if(curr != NULL)
+    if(curr)
     {
         if(prev)
+        {
             prev->next = curr->next;
+            if(curr == ll->tail)
+                ll->tail = prev;
+            ll->count -= 1;
+        }
         else
+        {
             ll->head = curr->next;
+            if(ll->head == NULL)
+                ll->tail = NULL;
+
+            ll->count -= 1;
+        }
 
         free(curr->value);
         free(curr);
-        ll->count -= 1;
     }
+}
+
+char* ll_explode_str(linked_list_t* ll, char divisor, size_t* len_output)
+{
+    RET_IF(!ll, NULL);
+
+    char* full_str;
+    size_t max_size = ll->count * (108 + 1);
+    CHECK_FATAL_EQ(full_str, malloc(max_size), NULL, NO_MEM_FATAL);
+
+    int str_index = 0;
+    FOREACH_LL(ll)
+    {
+        char* file_path = VALUE_IT_LL(char*);
+        bool_t is_last = node_get_next(CURR_IT_LL) == NULL;
+        
+        char next_token[4] = "%s \0";
+        next_token[2] = is_last ? '\0' : divisor;
+
+        snprintf(full_str + str_index, max_size, next_token, file_path);
+        str_index += strnlen(file_path, 108) + !is_last;
+    }
+
+    if(len_output)
+        *len_output = str_index;
+
+    return full_str;
 }
 
 void ll_empty(linked_list_t* ll, void (*free_func)(void*))
