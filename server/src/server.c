@@ -371,7 +371,7 @@ int initialize_connection_accepter()
 
 void* handle_clients_packets()
 {
-    bool_t must_close;
+    bool_t must_close = FALSE;
     struct timeval tv;
 
     while(!threads_must_close())

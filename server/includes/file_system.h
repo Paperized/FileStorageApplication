@@ -6,7 +6,7 @@
 
 typedef struct file_system file_system_t;
 
-extern int(*fs_policy)(file_stored_t*, file_stored_t*);
+extern int(*fs_policy)(const void*, const void*);
 
 file_system_t* create_fs(size_t max_capacity_mem, size_t max_file_count);
 void set_policy_fs(file_system_t* fs, char* policy);

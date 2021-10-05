@@ -30,7 +30,7 @@ struct file_system {
     pthread_rwlock_t    rwlock_metrics;
 };
 
-int(*fs_policy)(file_stored_t*, file_stored_t*) = replacement_policy_fifo;
+int(*fs_policy)(const void*, const void*) = replacement_policy_fifo;
 
 file_system_t* create_fs(size_t max_capacity, size_t max_file_count)
 {
@@ -150,7 +150,11 @@ file_stored_t** get_files_stored(file_system_t* fs)
     RET_IF(!fs, NULL);
 
     file_stored_t** files;
-    CHECK_FATAL_EQ(files, malloc(sizeof(file_stored_t*) * ll_count(fs->filenames_stored)), NULL, NO_MEM_FATAL);
+    size_t num = ll_count(fs->filenames_stored);
+    if(num == 0)
+        return NULL;
+    
+    CHECK_FATAL_EQ(files, malloc(sizeof(file_stored_t*) * num), NULL, NO_MEM_FATAL);
     
     int i = 0;
     FOREACH_LL(fs->filenames_stored) {

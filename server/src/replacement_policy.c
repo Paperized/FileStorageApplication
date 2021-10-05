@@ -3,8 +3,6 @@
 #include "replacement_policy.h"
 #include "network_file.h"
 
-#define FS_POLICY_FUNC ((int(*)(const void*, const void *))fs_policy)
-
 bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linked_list_t** output)
 {
     file_system_t* fs = get_fs();
@@ -12,7 +10,7 @@ bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linke
 
     file_stored_t** all_files = get_files_stored(fs);
     size_t files_count = get_file_count_fs(fs);
-    qsort(all_files, files_count, sizeof(file_stored_t*), FS_POLICY_FUNC);
+    qsort(all_files, files_count, sizeof(file_stored_t*), fs_policy);
 
     size_t mem_freed = 0;
     int i = 0;
@@ -68,9 +66,9 @@ bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linke
 static int cmp_time(struct timespec* t1, struct timespec* t2)
 {
     if(t1->tv_sec != t2->tv_sec)
-        return t1->tv_sec - t2->tv_sec;
+        return (t1->tv_sec - t2->tv_sec);
 
-    return t1->tv_nsec - t2->tv_nsec;
+    return (t1->tv_nsec - t2->tv_nsec);
 }
 
 static int replacement_cmp_size(file_stored_t* f1, file_stored_t* f2)
@@ -78,17 +76,24 @@ static int replacement_cmp_size(file_stored_t* f1, file_stored_t* f2)
     return file_get_size(f1) - file_get_size(f2);
 }
 
-int replacement_policy_fifo(file_stored_t* f1, file_stored_t* f2)
+int replacement_policy_fifo(const void* f1_ptr, const void* f2_ptr)
 {
+    file_stored_t* f1 = *(file_stored_t**)f1_ptr;
+    file_stored_t* f2 = *(file_stored_t**)f2_ptr;
+    
     int cmp = cmp_time(file_get_creation_time(f1), file_get_creation_time(f2));
     if(cmp == 0)
         return replacement_cmp_size(f1, f2);
 
     return cmp;
+    return 0;
 }
 
-int replacement_policy_lru(file_stored_t* f1, file_stored_t* f2)
+int replacement_policy_lru(const void* f1_ptr, const void* f2_ptr)
 {
+    file_stored_t* f1 = *(file_stored_t**)f1_ptr;
+    file_stored_t* f2 = *(file_stored_t**)f2_ptr;
+
     int cmp = cmp_time(file_get_last_use_time(f1), file_get_last_use_time(f2));
     if(cmp == 0)
         return replacement_cmp_size(f1, f2);
@@ -96,8 +101,11 @@ int replacement_policy_lru(file_stored_t* f1, file_stored_t* f2)
     return cmp;
 }
 
-int replacement_policy_lfu(file_stored_t* f1, file_stored_t* f2)
+int replacement_policy_lfu(const void* f1_ptr, const void* f2_ptr)
 {
+    file_stored_t* f1 = *(file_stored_t**)f1_ptr;
+    file_stored_t* f2 = *(file_stored_t**)f2_ptr;
+
     int cmp = file_get_use_frequency(f1) - file_get_use_frequency(f2);
     if(cmp == 0)
         return replacement_cmp_size(f1, f2);
