@@ -231,8 +231,6 @@ quit_signal_t server_wait_end_signal()
     CHECK_ERROR_EQ(error, sigaddset(&managed_signals, SIGHUP), -1, S_FAST, "Couldn't add SIGHUP to sigset!");
     CHECK_ERROR_EQ(error, sigaddset(&managed_signals, SIGINT), -1, S_FAST, "Couldn't add SIGINT to sigset!");
     CHECK_ERROR_EQ(error, pthread_sigmask(SIG_SETMASK, &managed_signals, NULL), -1, S_FAST, "Couldn't set new sigmask!");
-    
-    // ignore sigpipe
 
     quit_signal_t local_quit_signal = S_NONE;
     quit_signal_t shared_quit_signal;

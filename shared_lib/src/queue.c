@@ -41,7 +41,7 @@ int enqueue(queue_t* queue, void* value)
 {
     RET_IF(!queue, -1);
 
-    return ll_add_head(queue->internal_list, value);
+    return ll_add_tail(queue->internal_list, value);
 }
 
 void* dequeue(queue_t* queue)
@@ -49,7 +49,7 @@ void* dequeue(queue_t* queue)
     RET_IF(!queue || count_q(queue) <= 0, NULL);
     
     void* res;
-    ll_remove_last(queue->internal_list, &res);
+    ll_remove_first(queue->internal_list, &res);
     return res;
 }
 

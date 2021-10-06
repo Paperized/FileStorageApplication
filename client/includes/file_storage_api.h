@@ -4,9 +4,6 @@
 #include <stdlib.h>
 #include "client_params.h"
 
-#define API_CALL(fn_call) fn_call; \
-                            usleep(1000 * client_ms_between_requests(g_params))
-
 int openConnection(const char* sockname, int msec, const struct timespec abstime);
 int closeConnection(const char* sockname);
 int openFile(const char* pathname, int flags);

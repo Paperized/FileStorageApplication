@@ -428,9 +428,9 @@ int handle_nread_files_req(packet_t* req, packet_t* response)
     // match the array boundaries (example: 4 files means -> [0, 3])
     int i = files_readed - 1;
     int data_read = 0;
-    while(files_readed >= 0)
+    while(i >= 0)
     {
-        file_stored_t* curr_file = files[files_readed];
+        file_stored_t* curr_file = files[i];
         acquire_read_lock_file(curr_file);
         size_t curr_size = file_get_size(curr_file);
         netfile_set_pathname(sent_file, file_get_pathname(curr_file));

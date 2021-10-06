@@ -13,39 +13,46 @@
 
 void print_help();
 
-void send_filenames();
-void send_file_inside_dirs();
-void read_filenames();
-void read_n_files();
-void lock_filenames();
-void unlock_filenames();
-void remove_filenames();
+void send_files(queue_t* files);
+void send_folder_files(pair_int_str_t* pair);
+void read_files(queue_t* files);
+void read_n_files(long n);
+void lock_files(queue_t* files);
+void unlock_files(queue_t* files);
+void remove_files(queue_t* files);
 
 int read_file(const char* filename);
-int send_file(char* pathname, char* dirname);
+int send_file(char* pathname);
 int lock_file(const char* filename);
 int unlock_file(const char* filename);
 int remove_file(const char* pathname);
+
+long current_ms_between_reqs = 0;
+char* current_save_folder = NULL;
+char* current_save_repl_folder = NULL;
+
+#define API_CALL(fn_call) fn_call; \
+                            usleep(1000 * current_ms_between_reqs)
 
 int main(int argc, char **argv)
 {
     init_client_params(&g_params);
 
-    int error =read_args_client_params(argc, argv, g_params);
+    int error = read_args_client_params(argc, argv, g_params);
     if(error == -1)
     {
         free_client_params(g_params);
         PRINT_FATAL(EINVAL, "Couldn't read the config commands correctly!");
         return EXIT_FAILURE;
     }
-    if(client_is_print_help(g_params))
+
+    if(g_params->print_help)
     {
         print_help();
         free_client_params(g_params);
         return 0;
     }
 
-    print_params(g_params);
     if(check_prerequisited(g_params) == -1)
     {
         free_client_params(g_params);
@@ -54,7 +61,7 @@ int main(int argc, char **argv)
 
     struct timespec timeout = { time(0) + 5, 0 };
     int interval = 400;
-    char* socket_name = client_get_socket_name(g_params);
+    const char* socket_name = g_params->server_socket_name;
     int connected = openConnection(socket_name, interval, timeout);
     if(connected == -1)
     {
@@ -65,16 +72,52 @@ int main(int argc, char **argv)
 
     PRINT_INFO("Connected to server!");
 
-    send_filenames();
-    send_file_inside_dirs();
+    queue_t* ops = g_params->api_operations;
 
-    lock_filenames();
-    remove_filenames();
+    FOREACH_Q(ops)
+    {
+        long n = -1;
+        api_option_t* curr_opt = VALUE_IT_Q(api_option_t*);
+        PRINT_INFO("Curr op %c", curr_opt->op);
+        switch (curr_opt->op)
+        {
+        case 't':
+            current_ms_between_reqs = *((long*)&curr_opt->args);
+            break;
+        case 'd':
+            current_save_folder = curr_opt->args;
+            break;
+        case 'D':
+            current_save_repl_folder = curr_opt->args;
+            break;
 
-    read_filenames();
-    read_n_files();
-
-    unlock_filenames();
+        case 'w':
+            send_folder_files(curr_opt->args);
+            break;
+        case 'W':
+            send_files(curr_opt->args);
+            break;
+        case 'r':
+            read_files(curr_opt->args);
+            break;
+        case 'l':
+            lock_files(curr_opt->args);
+            break;
+        case 'u':
+            unlock_files(curr_opt->args);
+            break;
+        case 'c':
+            remove_files(curr_opt->args);
+            break;
+        
+        case 'R':
+            n = *((long*)&curr_opt->args);
+            read_n_files(n);
+            break;
+        default:
+            break;
+        }
+    }
 
     int closed = closeConnection(socket_name);
     if(closed == -1)
@@ -90,29 +133,21 @@ int main(int argc, char **argv)
     return 0;
 }
 
-void lock_filenames()
+void lock_files(queue_t* files)
 {
-    node_t* curr = ll_get_head_node(client_file_list_lockable(g_params));
-    while(curr)
+    FOREACH_Q(files)
     {
-        char* pathname = node_get_value(curr);
-        pathname = get_filename_from_path(pathname, strnlen(pathname, MAX_PATHNAME_API_LENGTH), NULL);
+        char* pathname = VALUE_IT_Q(char*);
         lock_file(pathname);
-
-        curr = node_get_next(curr);
     }
 }
 
-void unlock_filenames()
+void unlock_files(queue_t* files)
 {   
-    node_t* curr = ll_get_head_node(client_file_list_unlockable(g_params));
-    while(curr)
+    FOREACH_Q(files)
     {
-        char* pathname = node_get_value(curr);
-        pathname = get_filename_from_path(pathname, strnlen(pathname, MAX_PATHNAME_API_LENGTH), NULL);
+        char* pathname = VALUE_IT_Q(char*);
         unlock_file(pathname);
-        
-        curr = node_get_next(curr);
     }
 }
 
@@ -152,7 +187,6 @@ int send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remaini
     struct dirent *dir;
 
     CHECK_ERROR_EQ(d, opendir(dirname), NULL, -1, "Recursive send files cannot opendir %s!", dirname);
-    char* dirname_replaced_files = client_dirname_replaced_files(g_params);
 
     char pathname_file[MAX_PATHNAME_API_LENGTH + 1];
     size_t dir_len = strnlen(dirname, MAX_PATHNAME_API_LENGTH);
@@ -167,7 +201,7 @@ int send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remaini
                 continue;
             }
             
-            bool_t success = send_file(pathname_file, dirname_replaced_files) != -1;
+            bool_t success = send_file(pathname_file) != -1;
 
             if(success)
                 *remaining -= 1;
@@ -189,70 +223,60 @@ int send_files_inside_dir_rec(const char* dirname, bool_t send_all, int* remaini
     return 1;
 }
 
-void send_file_inside_dirs()
+void send_folder_files(pair_int_str_t* pair)
 {
-    char* dir = client_dirname_file_sendable(g_params);
-    if(!dir)
-        return;
-
-    int num = client_dirname_file_sendable_num(g_params);
-    send_files_inside_dir_rec(dir, num == 0, &num);
+    int n = pair->num;
+    send_files_inside_dir_rec(pair->str, n == 0, &n);
 }
 
-void send_filenames()
+void send_files(queue_t* files)
 {
-    char* dirname = client_dirname_replaced_files(g_params);
-    node_t* curr = ll_get_head_node(client_file_list_sendable(g_params));
-    while(curr)
+    FOREACH_Q(files)
     {
-        char* curr_pathname = node_get_value(curr);
-        send_file(curr_pathname, dirname);
-
-        curr = node_get_next(curr);
+        char* pathname = VALUE_IT_Q(char*);
+        send_file(pathname);
     }
 }
 
-int send_file(char* pathname, char* dirname)
+int send_file(char* pathname)
 {
-    char* filename = get_filename_from_path(pathname, strnlen(pathname, MAX_PATHNAME_API_LENGTH), NULL);
-
-    int result = API_CALL(openFile(filename, O_CREATE | O_LOCK));
+    int result = API_CALL(openFile(pathname, O_CREATE | O_LOCK));
     if(result == -1)
     {
         return -1;
     }
 
-    int did_write = API_CALL(writeFile(pathname, dirname));
-    result = API_CALL(closeFile(filename));
+    int did_write = API_CALL(writeFile(pathname, current_save_repl_folder));
+    result = API_CALL(closeFile(pathname));
 
     // use result in the future (?)
 
     return did_write;
 }
 
-int read_file(const char* filename)
+int read_file(const char* pathname)
 {
-    int result = API_CALL(openFile(filename, 0));
+    int result = API_CALL(openFile(pathname, 0));
     if(result == -1)
         return -1;
 
     void* buffer;
     size_t buffer_size;
-    int has_read = API_CALL(readFile(filename, &buffer, &buffer_size));
-    result = API_CALL(closeFile(filename));
+    int has_read = API_CALL(readFile(pathname, &buffer, &buffer_size));
+    result = API_CALL(closeFile(pathname));
 
     if(has_read == -1)
         return -1;
 
-    char* dirname_readed_files = client_dirname_readed_files(g_params);
-    if(dirname_readed_files)
+    if(current_save_folder)
     {
         // save file
-        size_t dirname_len = strnlen(dirname_readed_files, MAX_PATHNAME_API_LENGTH);
-        size_t filename_len = strnlen(filename, MAX_PATHNAME_API_LENGTH);
-        char* full_path;
-        CHECK_FATAL_EQ(full_path, malloc(sizeof(char) * (dirname_len + filename_len + 1)), NULL, NO_MEM_FATAL);
-        if(buildpath(full_path, dirname_readed_files, (char*)filename, dirname_len, filename_len) == -1)
+        size_t dirname_len = strnlen(current_save_folder, MAX_PATHNAME_API_LENGTH);
+        size_t filename_len = 0;
+        const char *filename = get_filename_from_path(pathname, strnlen(pathname, MAX_PATHNAME_API_LENGTH), &filename_len);
+        char full_path[MAX_PATHNAME_API_LENGTH + 1];
+        full_path[0] = '\0';
+        if(buildpath(full_path, current_save_folder, (char*)filename, dirname_len, filename_len) == -1)
         {
             PRINT_ERROR(errno, "Read file (Saving) %s exceeded max path length (%zu)!", filename, dirname_len + filename_len + 1);
         }
@@ -263,59 +287,48 @@ int read_file(const char* filename)
                 PRINT_ERROR(errno, "Read file (Saving) %s failed!", filename);
             }
         }
-        
-        free(full_path);
     }
 
     free(buffer);
     return has_read;
 }
 
-void read_filenames()
+void read_files(queue_t* files)
 {
-    node_t* curr = ll_get_head_node(client_file_list_readable(g_params));
-    while(curr)
+    FOREACH_Q(files)
     {
-        char* curr_filename = node_get_value(curr);
-        char* filename = get_filename_from_path(curr_filename, strnlen(curr_filename, MAX_PATHNAME_API_LENGTH), NULL);
-        read_file(filename);
-
-        curr = node_get_next(curr);
+        char* curr_filename = VALUE_IT_Q(char*);
+        read_file(curr_filename);
     }
 }
 
-void read_n_files()
+void read_n_files(long n)
 {
-    int n_read = client_num_file_readed(g_params);
-    if(n_read >= 0)
-        readNFiles(n_read, client_dirname_readed_files(g_params));
+    if(n >= 0)
+        readNFiles(n, current_save_folder);
 }
 
-void remove_filenames()
+void remove_files(queue_t* files)
 {
-    node_t* curr = ll_get_head_node(client_file_list_removable(g_params));
-    while(curr)
+    FOREACH_Q(files)
     {
-        char* curr_filename = node_get_value(curr);
-        char* filename = get_filename_from_path(curr_filename, strnlen(curr_filename, MAX_PATHNAME_API_LENGTH), NULL);
-        remove_file(filename);
-
-        curr = node_get_next(curr);
+        char* curr_filename = VALUE_IT_Q(char*);
+        remove_file(curr_filename);
     }
 }
 
-int remove_file(const char* filename)
+int remove_file(const char* pathname)
 {
-    int result = API_CALL(openFile(filename, O_LOCK));
+    int result = API_CALL(openFile(pathname, O_LOCK));
     if(result == -1)
     {
         return -1;
     }
 
-    int has_removed = API_CALL(removeFile(filename));
+    int has_removed = API_CALL(removeFile(pathname));
     if(has_removed == -1)
     {
-        result = API_CALL(closeFile(filename));
+        result = API_CALL(closeFile(pathname));
     }
 
     return has_removed;

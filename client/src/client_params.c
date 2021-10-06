@@ -4,28 +4,6 @@
 
 #include "client_params.h"
 
-struct client_params {
-    bool_t print_help;
-
-    char server_socket_name[MAX_PATHNAME_API_LENGTH + 1];
-
-    int num_file_readed;
-    char* dirname_readed_files;
-    char* dirname_replaced_files;
-
-    int dirname_file_sendable_num;
-    char* dirname_file_sendable;
-
-    linked_list_t* file_list_sendable;
-    linked_list_t* file_list_readable;
-    linked_list_t* file_list_removable;
-    linked_list_t* file_list_lockable;
-    linked_list_t* file_list_unlockable;
-
-    int ms_between_requests;
-    bool_t print_operations;
-};
-
 #define BREAK_ON_NULL(p) if(p == NULL) break
 
 #define COMMA ","
@@ -36,66 +14,96 @@ void init_client_params(client_params_t** params)
 {
     CHECK_FATAL_EQ(*params, malloc(sizeof(client_params_t)), NULL, NO_MEM_FATAL);
     (*params)->print_help = FALSE;
-
-    (*params)->num_file_readed = -1;
-    (*params)->dirname_file_sendable_num = -1;
-
-    (*params)->file_list_sendable = ll_create();
-    (*params)->file_list_removable = ll_create();
-    (*params)->file_list_readable = ll_create();
-    (*params)->file_list_lockable = ll_create();
-    (*params)->file_list_unlockable = ll_create();
-
-    (*params)->dirname_readed_files = NULL;
-    (*params)->dirname_replaced_files = NULL;
-    (*params)->dirname_file_sendable = NULL;
-
-    (*params)->ms_between_requests = 0;
+    (*params)->api_operations = create_q();
+    (*params)->server_socket_name[0] = '\0';
     (*params)->print_operations = FALSE;
+}
+
+static void free_pair_int_str(pair_int_str_t* pair)
+{
+    NRET_IF(!pair);
+    free(pair->str);
+    free(pair);
+}
+
+static void free_api_option(api_option_t* op)
+{
+    NRET_IF(!op);
+    switch(op->op)
+    {
+        case 'D':
+        case 'd':
+            free(op->args);
+            break;
+
+        case 'W':
+        case 'r':
+        case 'c':
+        case 'l':
+        case 'u':
+            free_q(op->args, free);
+            break;
+
+        case 'w':
+            free_pair_int_str(op->args);
+            break;
+
+        default:
+            break;
+    }
+
+    free(op);
 }
 
 void free_client_params(client_params_t* params)
 {
-    ll_free(params->file_list_sendable, free);
-    ll_free(params->file_list_readable, free);
-    ll_free(params->file_list_removable, free);
-    ll_free(params->file_list_lockable, free);
-    ll_free(params->file_list_unlockable, free);
-    free(params->dirname_file_sendable);
-    free(params->dirname_readed_files);
-    free(params->dirname_replaced_files);
+    free_q(params->api_operations, FREE_FUNC(free_api_option));
     free(params);
 }
 
-void tokenize_filenames_into_ll(char* str, linked_list_t* ll)
+static void add_op_filename_list(client_params_t* params, char op, char* str)
 {
-    if(ll == NULL || str == NULL) return;
+    NRET_IF(!str || !params);
     char* save_ptr;
 
     char* file_name = strtok_r(str, COMMA, &save_ptr);
     if(!file_name) return;
+
+    api_option_t* api_opt;
+    CHECK_FATAL_EQ(api_opt, malloc(sizeof(api_option_t)), NULL, NO_MEM_FATAL);
+    api_opt->op = op;
+    queue_t* files_q = create_q();
+    api_opt->args = files_q;
+
     file_name = realpath(file_name, NULL);
-
-    if(file_name && ll_add_tail(ll, file_name) != 0)
+    if(!file_name)
     {
-        printf("Error adding %s to linked list during params read.\n", file_name);
+        PRINT_ERROR_DEBUG(errno, "Filename is invalid! (realpath)");
     }
+    else
+        enqueue(files_q, file_name);
 
-    while((file_name = strtok_r(NULL, COMMA, &save_ptr)) != NULL)
+    while((file_name = strtok_r(NULL, COMMA, &save_ptr)))
     {
         file_name = realpath(file_name, NULL);
 
-        if(file_name && ll_add_tail(ll, file_name) != 0)
+        if(!file_name)
         {
-            printf("Error adding %s to linked list during params read.\n", file_name);
+            PRINT_ERROR_DEBUG(errno, "Filename is invalid! (realpath)");
+            continue;
         }
+        enqueue(files_q, file_name);
     }
-}
 
-char* client_dirname_replaced_files(client_params_t* params)
-{
-    RET_IF(!params, NULL);
-    return params->dirname_replaced_files;
+    if(count_q(files_q) == 0)
+    {
+        PRINT_WARNING(ENOENT, "Ignoring option %c because no list is provided!", op);
+        free(files_q);
+        free(api_opt);
+        return;
+    }
+
+    enqueue(params->api_operations, api_opt);
 }
 
 int read_args_client_params(int argc, char** argv, client_params_t* params)
@@ -103,19 +111,19 @@ int read_args_client_params(int argc, char** argv, client_params_t* params)
     RET_IF(!params, -1);
 
     char* save_ptr;
-    char* n;
     int c;
-    int i = 0;
     while ((c = getopt(argc, argv, "hf:w:W:r:R:d:l:u:c:pD:t:")) != -1)
     {
         save_ptr = NULL;
-        PRINT_INFO("%d) %s", i++, optarg);
 
         switch (c)
         {
         case 'h':
             params->print_help = TRUE;
             return 0;
+        case 'p':
+            params->print_operations = TRUE;
+            break;
         case 'f':
             BREAK_ON_NULL(optarg);
             if(strnlen(params->server_socket_name, MAX_PATHNAME_API_LENGTH) > 0)
@@ -125,50 +133,57 @@ int read_args_client_params(int argc, char** argv, client_params_t* params)
             size_t end = strnlen(optarg, MAX_PATHNAME_API_LENGTH);
             params->server_socket_name[end] = '\0';
             break;
+
         case 'w':
             BREAK_ON_NULL(optarg);
-            params->dirname_file_sendable = strtok_r(optarg, COMMA, &save_ptr);
-            BREAK_ON_NULL(params->dirname_file_sendable);    
-            int dir_num = atoi(strtok_r(NULL, COMMA, &save_ptr));
+            char* dirpath = realpath(strtok_r(optarg, COMMA, &save_ptr), NULL);
+            BREAK_ON_NULL(dirpath);
+            long num = 0;
+            char* n = strtok_r(optarg, COMMA, &save_ptr);
+            if(n)
+                num = strtol(n, NULL, 10);
 
-            params->dirname_file_sendable = realpath(params->dirname_file_sendable, NULL);
-            BREAK_ON_NULL(params->dirname_file_sendable);
-            params->dirname_file_sendable_num = dir_num;
+            pair_int_str_t* pair;
+            CHECK_FATAL_EQ(pair, malloc(sizeof(pair_int_str_t)), NULL, NO_MEM_FATAL);
+            pair->str = dirpath;
+            pair->num = num;
+            
+            api_option_t* api_opt;
+            CHECK_FATAL_EQ(api_opt, malloc(sizeof(api_option_t)), NULL, NO_MEM_FATAL);
+            api_opt->op = c;
+            api_opt->args = pair;
+            enqueue(params->api_operations, api_opt);
             break;
+
         case 'W':
-            tokenize_filenames_into_ll(optarg, params->file_list_sendable);
-            break;
-        case 'r':
-            tokenize_filenames_into_ll(optarg, params->file_list_readable);
-            break;
-        case 'R':
-            BREAK_ON_NULL(optarg);
-            n = strtok_r(optarg, COMMA, &save_ptr);
-            params->num_file_readed = atoi(n);
-            break;
-        case 'd':
-            BREAK_ON_NULL(optarg);
-            params->dirname_readed_files = realpath(optarg, NULL);
-            break;
-        case 'D':
-            BREAK_ON_NULL(optarg);
-            params->dirname_replaced_files = realpath(optarg, NULL);
-            break;
         case 'l':
-            tokenize_filenames_into_ll(optarg, params->file_list_lockable);
-            break;
         case 'u':
-            tokenize_filenames_into_ll(optarg, params->file_list_unlockable);
+        case 'c':
+        case 'r':
+            add_op_filename_list(params, c, optarg);
             break;
+
+        case 'R':
         case 't':
             BREAK_ON_NULL(optarg);
-            params->ms_between_requests = atoi(optarg);
+            n = strtok_r(optarg, COMMA, &save_ptr);
+            BREAK_ON_NULL(n);
+            CHECK_FATAL_EQ(api_opt, malloc(sizeof(api_option_t)), NULL, NO_MEM_FATAL);
+            api_opt->op = c;
+            api_opt->args = (long*)strtol(n, NULL, 10);
+            enqueue(params->api_operations, api_opt);
             break;
-        case 'c':
-            tokenize_filenames_into_ll(optarg, params->file_list_removable);
-            break;
-        case 'p':
-            params->print_operations = TRUE;
+
+        case 'd':
+        case 'D':
+            BREAK_ON_NULL(optarg);
+            dirpath = realpath(strtok_r(optarg, COMMA, &save_ptr), NULL);
+            BREAK_ON_NULL(dirpath);
+
+            CHECK_FATAL_EQ(api_opt, malloc(sizeof(api_option_t)), NULL, NO_MEM_FATAL);
+            api_opt->op = c;
+            api_opt->args = dirpath;
+            enqueue(params->api_operations, api_opt);
             break;
 
         default:
@@ -192,208 +207,28 @@ int check_prerequisited(client_params_t* params)
 
 bool_t client_is_print_help(client_params_t* params)
 {
-    if(!params) return FALSE;
+    RET_IF(!params, FALSE);
 
     return params->print_help;
 }
 
 char* client_get_socket_name(client_params_t* params)
 {
-    if(!params) return NULL;
+    RET_IF(!params, NULL);
 
     return params->server_socket_name;
 }
 
-int client_num_file_readed(client_params_t* params)
-{
-    if(!params) return 0;
-
-    return params->num_file_readed;
-}
-
-int client_dirname_file_sendable_num(client_params_t* params)
-{
-    if(!params) return 0;
-
-    return params->dirname_file_sendable_num;
-}
-
-char* client_dirname_readed_files(client_params_t* params)
-{
-    if(!params) return NULL;
-
-    return params->dirname_readed_files;
-}
-
-char* client_dirname_file_sendable(client_params_t* params)
-{
-    if(!params) return NULL;
-
-    return params->dirname_file_sendable;
-}
-
-linked_list_t* client_file_list_sendable(client_params_t* params)
-{
-    if(!params) return NULL;
-
-    return params->file_list_sendable;
-}
-
-linked_list_t* client_file_list_readable(client_params_t* params)
-{
-    if(!params) return NULL;
-
-    return params->file_list_readable;
-}
-
-linked_list_t* client_file_list_removable(client_params_t* params)
-{
-    if(!params) return NULL;
-
-    return params->file_list_removable;
-}
-
-linked_list_t* client_file_list_lockable(client_params_t* params)
-{
-    if(!params) return NULL;
-
-    return params->file_list_lockable;
-}
-
-linked_list_t* client_file_list_unlockable(client_params_t* params)
-{
-    if(!params) return NULL;
-
-    return params->file_list_unlockable;
-}
-
-int client_ms_between_requests(client_params_t* params)
-{
-    if(!params) return 0;
-
-    return params->ms_between_requests;
-}
-
 bool_t client_print_operations(client_params_t* params)
 {
-    if(!params) return FALSE;
+    RET_IF(!params, FALSE);
 
     return params->print_operations;
 }
 
-void print_params(client_params_t* params)
+queue_t* client_get_api_operations(client_params_t* params)
 {
-    printf("/********** CLIENT PARAMS **********\\.\n");
-    printf("-p Print operation: %s.\n", params->print_operations ? "TRUE" : "FALSE");
-    printf("-f Socket file path: %s.\n", params->server_socket_name == NULL ? "NULL" : params->server_socket_name);
-    printf("-w Directory sendable: ");
-    if(params->dirname_file_sendable)
-    {
-        printf("%s,%d.\n", params->dirname_file_sendable, params->dirname_file_sendable_num);
-    }
-    else
-    {
-        printf("NULL.\n");
-    }
+    RET_IF(!params, NULL);
 
-    printf("-W Filenames sendable: ");
-    if(ll_count(params->file_list_sendable) == 0)
-        printf("NONE.\n");
-    else
-    {
-        node_t* curr = ll_get_head_node(params->file_list_sendable);
-        while(curr != NULL)
-        {
-            char* filename = node_get_value(curr);
-            printf("%s", filename);
-            curr = node_get_next(curr);
-
-            if(curr != NULL)
-                printf(", ");
-        }
-
-        printf(".\n");
-    }
-
-    printf("-r Filenames readable: ");
-    if(ll_count(params->file_list_readable) == 0)
-        printf("NONE.\n");
-    else
-    {
-        node_t* curr = ll_get_head_node(params->file_list_readable);
-        while(curr != NULL)
-        {
-            char* filename = node_get_value(curr);
-            printf("%s", filename);
-            curr = node_get_next(curr);
-
-            if(curr != NULL)
-                printf(", ");
-        }
-
-        printf(".\n");
-    }
-
-    printf("-R Number files readable from server: %d.\n", params->num_file_readed);
-
-    printf("-d Dirname files stored (after reading them): %s.\n", params->dirname_readed_files == NULL ? "NULL" : params->dirname_readed_files);
-    printf("-D Dirname files stored (after replacement): %s.\n", params->dirname_replaced_files == NULL ? "NULL" : params->dirname_replaced_files);
-
-    printf("-t Time between operation completed (in milliseconds): %d.\n", params->ms_between_requests);
-    printf("-l Filenames lockable: ");
-    if(ll_count(params->file_list_lockable) == 0)
-        printf("NONE.\n");
-    else
-    {
-        node_t* curr = ll_get_head_node(params->file_list_lockable);
-        while(curr != NULL)
-        {
-            char* filename = node_get_value(curr);
-            printf("%s", filename);
-            curr = node_get_next(curr);
-
-            if(curr != NULL)
-                printf(", ");
-        }
-
-        printf(".\n");
-    }
-    printf("-u Filenames unlockable: ");
-    if(ll_count(params->file_list_unlockable) == 0)
-        printf("NONE.\n");
-    else
-    {
-        node_t* curr = ll_get_head_node(params->file_list_unlockable);
-        while(curr != NULL)
-        {
-            char* filename = node_get_value(curr);
-            printf("%s", filename);
-            curr = node_get_next(curr);
-
-            if(curr != NULL)
-                printf(", ");
-        }
-
-        printf(".\n");
-    }
-    printf("-c Filenames removable: ");
-    if(ll_count(params->file_list_removable) == 0)
-        printf("NONE.\n");
-    else
-    {
-        node_t* curr = ll_get_head_node(params->file_list_removable);
-        while(curr != NULL)
-        {
-            char* filename = node_get_value(curr);
-            printf("%s", filename);
-            curr = node_get_next(curr);
-
-            if(curr != NULL)
-                printf(", ");
-        }
-
-        printf(".\n");
-    }
-
-    printf("\\***********************************//.\n");
+    return params->api_operations;
 }

@@ -66,8 +66,8 @@ char* get_filename_from_path(const char* path, size_t path_len, size_t* filename
     }
 
     if(filename_len)
-        *filename_len = 0;
-    return NULL;
+        *filename_len = path_len;
+    return (char*)path;
 }
 
 int buildpath(char* dest, const char* src1, const char* src2, size_t src1length, size_t src2length)
