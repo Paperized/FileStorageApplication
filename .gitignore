@@ -54,3 +54,5 @@ dkms.conf
 .vscode/
 */bin/*
 !*/bin/.keep
+./tests/*
+!./tests/.keep

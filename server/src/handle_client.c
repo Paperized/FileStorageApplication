@@ -33,11 +33,11 @@ static inline int return_response_error(char* action, char* pathname, int sender
 {
     if(pathname)
     {
-        LOG_EVENT("%s run by %d on file %s failed! [%s]", action, sender, pathname, strerror(error));
+        LOG_EVENT("%s run by %d on file %s failed! [%s]", -1, action, sender, pathname, strerror(error));
     }
     else
     {
-        LOG_EVENT("%s run by %d failed! [%s]", action, sender, strerror(error));
+        LOG_EVENT("%s run by %d failed! [%s]", -1, action, sender, strerror(error));
     }
 
     errno = error;
@@ -104,7 +104,9 @@ static int on_files_replaced(packet_t* response, bool_t are_replaced, bool_t sen
 
     ll_free(repl_list, FREE_FUNC(free_netfile));
     
-    LOG_EVENT("OP_REPLACEMENT replaced %d files and cleaned %d bytes. Files: [%s] [Success]", num_files_replaced, data_cleaned, files_removed_str);
+    // enough length to log the entire formatted text
+    size_t log_len = 150 + files_rem_str_index;
+    LOG_EVENT("OP_REPLACEMENT replaced %d files and cleaned %d bytes. Files: [%s] [Success]", log_len, num_files_replaced, data_cleaned, files_removed_str);
     free(files_removed_str);
     return 1;
 }
@@ -182,7 +184,7 @@ int handle_open_file_req(packet_t* req, packet_t* response)
     }
 
     release_write_lock_fs(fs);
-    LOG_EVENT("OP_OPEN_FILE run by %d on file %s with flags %d [Success]", sender, pathname, flags);
+    LOG_EVENT("OP_OPEN_FILE run by %d on file %s with flags %d [Success]", -1, sender, pathname, flags);
     return result;
 }
 
@@ -271,7 +273,7 @@ int handle_write_file_req(packet_t* req, packet_t* response)
 
     release_write_lock_fs(fs);
 
-    LOG_EVENT("OP_WRITE_FILE run by %d on file %s data written %d [Success]", sender, pathname, data_size);
+    LOG_EVENT("OP_WRITE_FILE run by %d on file %s data written %d [Success]", -1, sender, pathname, data_size);
     on_files_replaced(response, mem_missing > 0, send_back, replaced_files);
     return 0;
 }
@@ -354,7 +356,7 @@ int handle_append_file_req(packet_t* req, packet_t* response)
 
     release_write_lock_fs(fs);
 
-    LOG_EVENT("OP_APPEND_FILE run by %d on file %s data written %d [Success]", sender, pathname, data_size);
+    LOG_EVENT("OP_APPEND_FILE run by %d on file %s data written %d [Success]", -1, sender, pathname, data_size);
     on_files_replaced(response, mem_missing > 0, send_back, replaced_files);
     return 0;
 }
@@ -404,7 +406,7 @@ int handle_read_file_req(packet_t* req, packet_t* response)
     
     release_read_lock_fs(fs);
 
-    LOG_EVENT("OP_READ_FILE run by %d on file %s data read %zu [Success]", sender, pathname, content_size);
+    LOG_EVENT("OP_READ_FILE run by %d on file %s data read %zu [Success]", -1, sender, pathname, content_size);
     return 0;
 }
 
@@ -445,7 +447,7 @@ int handle_nread_files_req(packet_t* req, packet_t* response)
 
     free(sent_file);
     free(files);
-    LOG_EVENT("OP_READN_FILE run by %d file readed %d data read %d [Success]", sender, files_readed, data_read);
+    LOG_EVENT("OP_READN_FILE run by %d file readed %d data read %d [Success]", -1, sender, files_readed, data_read);
     return 0;
 }
 
@@ -481,7 +483,7 @@ int handle_remove_file_req(packet_t* req, packet_t* response)
     remove_file_fs(fs, pathname, FALSE);
     release_write_lock_fs(fs);
 
-    LOG_EVENT("OP_REMOVE_FILE run by %d on file %s data removed %d [Success]", sender, pathname, data_size);
+    LOG_EVENT("OP_REMOVE_FILE run by %d on file %s data removed %d [Success]", -1, sender, pathname, data_size);
     return 0;
 }
 
@@ -525,7 +527,7 @@ int handle_lock_file_req(packet_t* req, packet_t* response)
     release_write_lock_file(file);
     release_write_lock_fs(fs);
 
-    LOG_EVENT("OP_LOCK_FILE run by %d on file %s lock on hold %s [Success]", sender, pathname, result == -1 ? "TRUE" : "FALSE");
+    LOG_EVENT("OP_LOCK_FILE run by %d on file %s lock on hold %s [Success]", -1, sender, pathname, result == -1 ? "TRUE" : "FALSE");
     return result;
 }
 
@@ -570,7 +572,7 @@ int handle_unlock_file_req(packet_t* req, packet_t* response)
     release_write_lock_file(file);
     release_write_lock_fs(fs);
 
-    LOG_EVENT("OP_UNLOCK_FILE run by %d on file %s [Success]", sender, pathname);
+    LOG_EVENT("OP_UNLOCK_FILE run by %d on file %s [Success]", -1, sender, pathname);
     return 0;
 }
 
@@ -606,6 +608,6 @@ int handle_close_file_req(packet_t* req, packet_t* response)
     if(next_owner >= 0)
         notify_given_lock(next_owner);
 
-    LOG_EVENT("OP_CLOSE_FILE run by %d on file %s [Success]", sender, pathname);
+    LOG_EVENT("OP_CLOSE_FILE run by %d on file %s [Success]", -1, sender, pathname);
     return 0;
 }

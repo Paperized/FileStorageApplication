@@ -97,26 +97,28 @@ void shutdown_fs(file_system_t* fs)
     NRET_IF(!fs);
 
     size_t files_str_len;
+    size_t files_num;
     RLOCK_RWLOCK(&fs->rwlock);
     char* files_printable = ll_explode_str(fs->filenames_stored, ',', &files_str_len);
+    files_num = ll_count(fs->filenames_stored);
     UNLOCK_RWLOCK(&fs->rwlock);
 
-    LOG_EVENT("FINAL_METRICS last files remaining: [%s]", files_str_len > 0 ? files_printable : "NONE");
+    LOG_EVENT("FINAL_METRICS last files remaining(%zu): [%s]", 60 + files_str_len, files_num, files_str_len > 0 ? files_printable : "NONE");
     free(files_printable);
 
     struct file_system_metrics* metrics = &fs->metrics;
     RLOCK_RWLOCK(&fs->rwlock_metrics);
 
     PRINT_INFO_DEBUG("%zu max file count.", metrics->max_num_files_reached);
-    LOG_EVENT("FINAL_METRICS Max file count %zu!", metrics->max_num_files_reached);
+    LOG_EVENT("FINAL_METRICS Max file count %zu!", -1, metrics->max_num_files_reached);
     PRINT_INFO_DEBUG("%zuB max storage size.", metrics->max_memory_reached);
-    LOG_EVENT("FINAL_METRICS Max storage size %zu!", metrics->max_memory_reached);
+    LOG_EVENT("FINAL_METRICS Max storage size %zu!", -1, metrics->max_memory_reached);
 
     FOREACH_LL(metrics->max_req_threads) {
         pair_pthread_int_t* pair = VALUE_IT_LL(pair_pthread_int_t*);
         
         PRINT_INFO_DEBUG("Thread %lu handled %d requests!", pair->pid, pair->val);
-        LOG_EVENT("FINAL_METRICS Thread %lu handled %d requests!", pair->pid, pair->val);
+        LOG_EVENT("FINAL_METRICS Thread %lu handled %d requests!", -1, pair->pid, pair->val);
     }
     UNLOCK_RWLOCK(&fs->rwlock_metrics);
 }

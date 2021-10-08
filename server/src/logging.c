@@ -64,20 +64,17 @@ int stop_log(logging_t* log)
     return 1;
 }
 
-int __internal_write_log(logging_t* log)
+int __internal_write_log(logging_t* log, char* str, size_t len)
 {
     RET_IF(!log, -1);
-
-    int len = strnlen(log->__internal_used_str, MAX_LOG_LINE_LENGTH);
-    if(len == 0)
-        return 1;
+    RET_IF(len == 0, 1);
 
     if(!log->f_ptr)
     {
         return -1;
     }
 
-    int res = fwrite(log->__internal_used_str, len, 1, log->f_ptr);
+    int res = fwrite(str, len, 1, log->f_ptr);
     // in case of crash we are flushing every log
     fflush(log->f_ptr);
 

@@ -17,7 +17,6 @@ typedef enum bool { FALSE, TRUE } bool_t;
 #define PRINT_FATAL(errno_code, message, ...)  PRINT_WITH_COLOR(START_RED_CONSOLE, "Fatal", errno_code, message, ## __VA_ARGS__)
 #define PRINT_INFO(message, ...)     printf("[Info] " message "\n", ## __VA_ARGS__)
 
-#define DEBUG_LOG
 #ifdef DEBUG_LOG
     #define PRINT_INFO_DEBUG(message, ...) PRINT_INFO(message, ## __VA_ARGS__)
     #define PRINT_WARNING_DEBUG(errno_code, message, ...)  PRINT_WARNING(errno_code, message, ## __VA_ARGS__)

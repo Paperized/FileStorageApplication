@@ -2,9 +2,15 @@
 #include <stdlib.h>
 #include "server.h"
 
-int main()
+int main(int argc, char* argv[])
 {
-    configuration_params_t* config = load_config_params("./config.txt");
+    if(argc < 2)
+    {
+        PRINT_INFO("Usage: server.out ./path_to_config");
+        return EXIT_SUCCESS;
+    }
+
+    configuration_params_t* config = load_config_params(argv[1]);
     if(config == NULL)
         return EXIT_FAILURE;
 

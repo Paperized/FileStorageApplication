@@ -6,6 +6,8 @@
 #include "packet.h"
 #include "config_params.h"
 #include "queue.h"
+
+#define DEBUG_LOG 0
 #include "utils.h"
 #include "logging.h"
 #include "file_system.h"
@@ -42,6 +44,10 @@ void set_quit_signal(quit_signal_t value);
 int init_server(const configuration_params_t* config);
 int start_server();
 
-#define LOG_EVENT(str, ...) LOG_FORMATTED_LINE(get_log(), str, ## __VA_ARGS__)
+#define LOG_EVENT(str, length, ...) if(length == -1 || length < MAX_LOG_LINE_LENGTH) { \
+                                        LOG_FORMATTED_LINE(get_log(), str, ## __VA_ARGS__); \
+                                    } else { \
+                                        LOG_FORMATTED_N_LINE(get_log(), length, str, ## __VA_ARGS__); \
+                                    }
 
 #endif

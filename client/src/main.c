@@ -78,7 +78,7 @@ int main(int argc, char **argv)
     {
         long n = -1;
         api_option_t* curr_opt = VALUE_IT_Q(api_option_t*);
-        PRINT_INFO("Curr op %c", curr_opt->op);
+        PRINT_INFO_DEBUG("Curr op %c", curr_opt->op);
         switch (curr_opt->op)
         {
         case 't':
@@ -160,7 +160,11 @@ int lock_file(const char* filename)
     }
 
     int has_locked = API_CALL(lockFile(filename));
-    result = API_CALL(closeFile(filename));
+
+    if(has_locked == -1)
+    {
+        API_CALL(closeFile(filename));
+    }
 
     // may be useful in future this result var
     return has_locked;
@@ -168,14 +172,11 @@ int lock_file(const char* filename)
 
 int unlock_file(const char* filename)
 {
-    int result = API_CALL(openFile(filename, O_LOCK));
-    if(result == -1)
-    {
-        return -1;
-    }
-
     int has_unlocked = API_CALL(unlockFile(filename));
-    result = API_CALL(closeFile(filename));
+    if(has_unlocked != -1)
+    {
+        API_CALL(closeFile(filename));
+    }
 
     // may be useful in the future this var
     return has_unlocked;
@@ -319,18 +320,7 @@ void remove_files(queue_t* files)
 
 int remove_file(const char* pathname)
 {
-    int result = API_CALL(openFile(pathname, O_LOCK));
-    if(result == -1)
-    {
-        return -1;
-    }
-
     int has_removed = API_CALL(removeFile(pathname));
-    if(has_removed == -1)
-    {
-        result = API_CALL(closeFile(pathname));
-    }
-
     return has_removed;
 }
 

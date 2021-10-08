@@ -19,12 +19,23 @@ int start_log(logging_t* log, const char* log_path);
 int stop_log(logging_t* log);
 void free_log(logging_t* log);
 
-int __internal_write_log(logging_t* log);
+int __internal_write_log(logging_t* log, char* str, size_t len);
+
 #define LOG_FORMATTED_LINE(log, message, ...) { \
                                                 LOCK_MUTEX(&log->write_access_m); \
                                                 snprintf(log->__internal_used_str, MAX_LOG_LINE_LENGTH, message "\n", ## __VA_ARGS__); \
-                                                __internal_write_log(log); \
+                                                __internal_write_log(log, log->__internal_used_str, strnlen(log->__internal_used_str, MAX_LOG_LINE_LENGTH)); \
                                                 UNLOCK_MUTEX(&log->write_access_m); \
                                             }
 
+#define LOG_FORMATTED_N_LINE(log, length, message, ...) { \
+                                                char* __n_buffer; \
+                                                CHECK_FATAL_EQ(__n_buffer, malloc(length * sizeof(char)), NULL, NO_MEM_FATAL); \
+                                                snprintf(__n_buffer, length, message "\n", ## __VA_ARGS__); \
+                                                size_t __buff_len = strnlen(__n_buffer, length); \
+                                                LOCK_MUTEX(&log->write_access_m); \
+                                                __internal_write_log(log, __n_buffer, __buff_len); \
+                                                UNLOCK_MUTEX(&log->write_access_m); \
+                                                free(__n_buffer); \
+                                            }
 #endif
