@@ -1,11 +1,23 @@
+#!/bin/bash
+MAINDIR=$(pwd)
+TESTDIR=$MAINDIR/tests
+SCRIPTDIR=$MAINDIR/script
+DATADIR=$TESTDIR/test1/test_data
+
+rm -rf $DATADIR && mkdir -p $DATADIR
+
+# those files might be a little too big but due to the character filter they are mostly reduced to 1/4 or 1/5
+for i in {1..15}
+do
+   head -c ${i}0MB /dev/urandom | tr -dc 'A-Za-z0-9' > $DATADIR/file$i.txt
+done
+cp -r $MAINDIR/shared_lib $DATADIR/shared_lib
+
 runTest() {
     POLICY=$1
-    MAINDIR=$(pwd)
-    TESTDIR=$MAINDIR/tests
-    SCRIPTDIR=$MAINDIR/script
 
-    rm -rf tests/test1/$POLICY && mkdir -p tests/test1/$POLICY
-    cd ./tests/test1/$POLICY
+    rm -rf $TESTDIR/test1/$POLICY && mkdir -p $TESTDIR/test1/$POLICY
+    cd $TESTDIR/test1/$POLICY
 
     SERVER_PATH="../../../server/bin"
     TMP_SOCKET="./tmp_socket.sk"
@@ -24,21 +36,20 @@ SERVER_LOG_NAME=$POLICY-logs.log" > $POLICY-config.txt
 
     chmod +x $SCRIPTDIR/utils/run_client.sh
 
-    # Write the entire shared_lib folder OK
-    # Write current config and log file OK
-    # Lock the log file OK -> automatic unlock on exit
-    $SCRIPTDIR/utils/run_client.sh 1 $TMP_SOCKET "-p -t 200 -w $MAINDIR/shared_lib,0 -W ./$POLICY-config.txt,./$POLICY-logs.log -l ./$POLICY-logs.log"
-    # Read log file and config OK
-    # Remove config file ERROR -> no lock
-    # Obtain config lock OK
-    # Remove again config OK
-    $SCRIPTDIR/utils/run_client.sh 2 $TMP_SOCKET "-p -t 200 -r ./$POLICY-logs.log,./$POLICY-config.txt -c ./$POLICY-config.txt -l ./$POLICY-config.txt -c ./$POLICY-config.txt"
+    # Write shared lib amd half of the files
+    $SCRIPTDIR/utils/run_client.sh 1 $TMP_SOCKET "-p -t 200 -w $DATADIR/shared_lib,0 -W $DATADIR/file1.txt,$DATADIR/file2.txt,$DATADIR/file3.txt,$DATADIR/file4.txt,$DATADIR/file5.txt,$DATADIR/file6.txt,$DATADIR/file7.txt,$DATADIR/file8.txt"
+    # Write the other half of the files
+    # Read linked_list.h file OK
+    # Remove linked_list.h file ERROR -> no lock
+    # Obtain linked_list.h lock OK
+    # Remove again linked_list.h OK
+    $SCRIPTDIR/utils/run_client.sh 2 $TMP_SOCKET "-p -t 200 -W $DATADIR/file9.txt,$DATADIR/file10.txt,$DATADIR/file11.txt,$DATADIR/file12.txt,$DATADIR/file13.txt,$DATADIR/file14.txt,$DATADIR/file15.txt -r $DATADIR/shared_lib/includes/linked_list.h,$DATADIR/shared_lib/includes/packet.h -c $DATADIR/shared_lib/includes/linked_list.h -l $DATADIR/shared_lib/includes/linked_list.h -c $DATADIR/shared_lib/includes/linked_list.h"
     # Lock three files OK
-    # Remove .keep OK
-    # Lock .keep file ERROR
-    # Unlock .keep file ERROR
+    # Remove queue.h OK
+    # Lock queue.h file ERROR
+    # Unlock queue.h file ERROR
     # Read all files OK -> Files should match the result log file at the end
-    $SCRIPTDIR/utils/run_client.sh 3 $TMP_SOCKET "-p -t 200 -l ./$POLICY-logs.log,$MAINDIR/shared_lib/bin/shared_lib.a,$MAINDIR/shared_lib/bin/.keep -c $MAINDIR/shared_lib/bin/.keep -l $MAINDIR/shared_lib/bin/.keep -u $MAINDIR/shared_lib/bin/.keep -R 0"
+    $SCRIPTDIR/utils/run_client.sh 3 $TMP_SOCKET "-p -t 200 -l $DATADIR/shared_lib/includes/linked_list.h,$DATADIR/shared_lib/includes/queue.h,$DATADIR/shared_lib/includes/utils.h -c $DATADIR/shared_lib/includes/queue.h -l $DATADIR/shared_lib/includes/queue.h -u $DATADIR/shared_lib/includes/queue.h -R 0"
     
     kill -s HUP "$SERVER_PID"
     wait $SERVER_PID

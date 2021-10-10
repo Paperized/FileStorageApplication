@@ -60,7 +60,7 @@ void set_workers_fs(file_system_t* fs, pthread_t* pids, int n)
         
     // match boundaries [0, n - 1]
     --n;
-    while(n > 0)
+    while(n >= 0)
     {
         struct pair_pthread_int* pair;
         CHECK_FATAL_EQ(pair, malloc(sizeof(struct pair_pthread_int)), NULL, NO_MEM_FATAL);
@@ -116,7 +116,7 @@ void shutdown_fs(file_system_t* fs)
 
     FOREACH_LL(metrics->max_req_threads) {
         pair_pthread_int_t* pair = VALUE_IT_LL(pair_pthread_int_t*);
-        
+
         PRINT_INFO_DEBUG("Thread %lu handled %d requests!", pair->pid, pair->val);
         LOG_EVENT("FINAL_METRICS Thread %lu handled %d requests!", -1, pair->pid, pair->val);
     }

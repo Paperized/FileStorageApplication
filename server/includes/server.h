@@ -7,7 +7,6 @@
 #include "config_params.h"
 #include "queue.h"
 
-#define DEBUG_LOG 0
 #include "utils.h"
 #include "logging.h"
 #include "file_system.h"
