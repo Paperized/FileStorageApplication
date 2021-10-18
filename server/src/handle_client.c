@@ -94,6 +94,7 @@ static int on_files_replaced(packet_t* response, bool_t are_replaced, bool_t sen
 
         if(send_back)
             write_netfile(response, file);
+        free_netfile(file);
 
         char* file_path = netfile_get_pathname(file);
         bool_t is_last = node_get_next(CURR_IT_LL) == NULL;
@@ -102,7 +103,8 @@ static int on_files_replaced(packet_t* response, bool_t are_replaced, bool_t sen
         files_rem_str_index += strnlen(file_path, MAX_PATHNAME_API_LENGTH) + !is_last;
     }
 
-    ll_free(repl_list, FREE_FUNC(free_netfile));
+    ll_empty(repl_list, NULL);
+    free(repl_list);
     
     // enough length to log the entire formatted text
     size_t log_len = 150 + files_rem_str_index;

@@ -24,7 +24,6 @@ typedef enum quit_signal {
 #define ERR_SOCKET_INIT_WORKERS -5
 #define ERR_SERVER_SIGNALS -6
 #define ERR_SOCKET_INIT_ACCEPTER -7
-#define ERR_SERVER_INIT_READER -8
 #define SERVER_OK 0
 
 // GESTIRE SIGINT, SIGQUIT (Chiusura il prima possibile, non accetta nuove richieste e chiude)

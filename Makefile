@@ -114,4 +114,4 @@ test1:
 test2: 
 	$(MAKE) all && chmod +x $(SCRIPTDIR)/test2.sh && $(SCRIPTDIR)/test2.sh
 test3: 
-	$(MAKE) all && chmod +x $(SCRIPTDIR)/test3.sh && $(SCRIPTDIR)/test3.sh
+	$(MAKE) all && chmod +x $(SCRIPTDIR)/test3.sh && $(SCRIPTDIR)/test3.sh 2

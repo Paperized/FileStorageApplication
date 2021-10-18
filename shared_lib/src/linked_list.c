@@ -139,7 +139,7 @@ void ll_remove_last(linked_list_t* ll, void** value)
         while(curr != last)
         {
             prev = curr;
-            curr = curr->next;
+            curr = curr->next; // SEGV ogni tanto
         }
 
         ll->tail = prev;

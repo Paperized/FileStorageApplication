@@ -16,7 +16,9 @@ typedef enum bool { FALSE, TRUE } bool_t;
 #define PRINT_ERROR(errno_code, message, ...)  PRINT_WITH_COLOR(START_RED_CONSOLE, "Error", errno_code, message, ## __VA_ARGS__)
 #define PRINT_FATAL(errno_code, message, ...)  PRINT_WITH_COLOR(START_RED_CONSOLE, "Fatal", errno_code, message, ## __VA_ARGS__)
 #define PRINT_INFO(message, ...)     printf("[Info] " message "\n", ## __VA_ARGS__)
+
 #define DEBUG_LOG
+
 #ifdef DEBUG_LOG
     #define PRINT_INFO_DEBUG(message, ...) PRINT_INFO(message, ## __VA_ARGS__)
     #define PRINT_WARNING_DEBUG(errno_code, message, ...)  PRINT_WARNING(errno_code, message, ## __VA_ARGS__)
@@ -127,7 +129,7 @@ int append_file_util(const char* pathname, void* buffer, size_t size);
 char* get_filename_from_path(const char* path, size_t path_len, size_t* filename_len);
 int buildpath(char* dest, const char* src1, const char* src2, size_t src1length, size_t src2length);
 int filesize_string_to_byte(char* str, unsigned int max_length);
-
+void* custom_malloc(size_t size);
 #define NO_MEM_FATAL "Cannot allocate more memory!"
 #define THREAD_CREATE_FATAL "Cannot create new thread!"
 

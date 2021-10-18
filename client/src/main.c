@@ -78,7 +78,6 @@ int main(int argc, char **argv)
     {
         long n = -1;
         api_option_t* curr_opt = VALUE_IT_Q(api_option_t*);
-        PRINT_INFO_DEBUG("Curr op %c", curr_opt->op);
         switch (curr_opt->op)
         {
         case 't':

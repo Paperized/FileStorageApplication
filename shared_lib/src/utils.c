@@ -16,20 +16,30 @@ int get_file_size(FILE* f)
     return size;
 }
 
+void* custom_malloc(size_t size)
+{
+    PRINT_INFO("Allocating: %fMB", (float)((float)size/1000000));
+    return malloc(size);
+}
+
 int read_file_util(const char* pathname, void** buffer, size_t* size)
 {
     FILE* f;
     CHECK_ERROR_EQ(f, fopen(pathname, "r"), NULL, -1, "Cannot read file %s from disk!", pathname);
     int curr_size;
     CHECK_ERROR_EQ(curr_size, get_file_size(f), -1, -1, "Cannot find file length %s from disk!", pathname);
-    CHECK_FATAL_EQ(*buffer, malloc(curr_size), NULL, NO_MEM_FATAL);
+    if(curr_size > 0)
+    {
+        CHECK_FATAL_EQ(*buffer, malloc(curr_size), NULL, NO_MEM_FATAL);
+    }
+    else
+    {
+        *buffer = NULL;
+    }
 
     *size = curr_size;
     int res = curr_size > 0 ? fread(*buffer, *size, 1, f) : 0;
     fclose(f);
-
-    if(res == 0)
-        free(*buffer);
 
     return res;
 }

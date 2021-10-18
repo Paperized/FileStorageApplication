@@ -9,6 +9,11 @@
 #include "server_api_utils.h"
 #include "handle_client.h"
 
+typedef enum {
+    R_ADD_CLIENT,
+    R_CHECK_FLAG
+} notification_t;
+
 typedef struct server {
     int server_socket_id;
 
@@ -18,21 +23,20 @@ typedef struct server {
     quit_signal_t quit_signal;
     pthread_mutex_t quit_signal_mutex;
 
-    pthread_cond_t clients_connected_cond;
-    linked_list_t* clients_connected;
-    pthread_mutex_t clients_list_mutex;
+    pthread_cond_t clients_pending_cond;
+    pthread_mutex_t clients_pending_mutex;
+    queue_t* clients_pending;
 
-    fd_set clients_connected_set;
-    pthread_mutex_t clients_set_mutex;
+    fd_set clients_set_connected;
+    int clients_set_max_id;
+    pthread_mutex_t clients_set_connected_mutex;
 
-    pthread_cond_t request_received_cond;
-    pthread_mutex_t requests_queue_mutex;
-    queue_t* requests_queue;
+    pthread_mutex_t clients_count_mutex;
+    unsigned int clients_count;
 
     logging_t* logging;
     file_system_t* fs;
-    int signal_pipe_reader[2];
-    int signal_pipe_accepter[2];
+    int pipe_connections_handler[2];
 } server_t;
 
 server_t* singleton_server = NULL;
@@ -41,13 +45,11 @@ server_t* singleton_server = NULL;
 static bool_t socket_initialized = FALSE;
 static bool_t workers_initialized = FALSE;
 static bool_t signals_initialized = FALSE;
-static bool_t connection_accepter_initialized = FALSE;
-static bool_t reader_initialized = FALSE;
+static bool_t connections_handler_initialized = FALSE;
 
 /** THREAD IDS **/
 static pthread_t* thread_workers_ids;
-static pthread_t thread_accepter_id;
-static pthread_t thread_reader_id;
+static pthread_t thread_connections_id;
 
 static unsigned int workers_count = 0;
 static unsigned int max_client_alltogether = 0;
@@ -70,15 +72,16 @@ static unsigned int max_client_alltogether = 0;
 
 #define BREAK_ON_CLOSE_CONDITION_MUTEX(b_output, m)  { \
                                                     int _curr_clients = 0; \
-                                                    GET_VAR_MUTEX(ll_count(singleton_server->clients_connected), _curr_clients, &singleton_server->clients_list_mutex); \
+                                                    GET_VAR_MUTEX(singleton_server->clients_count, _curr_clients, &singleton_server->clients_count_mutex); \
                                                     __BREAK_ON_CLOSE(b_output, _curr_clients, m); \
                                                 }
 
 #define BREAK_ON_CLOSE_CONDITION(b_output, m)  { \
-                                                    int _curr_clients = ll_count(singleton_server->clients_connected); \
-                                                    if((b_output = threads_must_close_util(_curr_clients))) \
-                                                    __BREAK_ON_CLOSE(b_output, _curr_clients, m); \
+                                                    if((b_output = threads_must_close_util(singleton_server->clients_count))) \
+                                                    __BREAK_ON_CLOSE(b_output, singleton_server->clients_count, m); \
                                                 }
+
+#define ll_add_head(ll, val) ll_add_head(ll, val); if(strcmp(#ll, "singleton_server->clients_connected") == 0) PRINT_WARNING(0, "[ADD] n°%d", ll_count(ll));
 
 static inline bool_t threads_must_close_util(int curr_clients)
 {
@@ -104,7 +107,7 @@ static inline bool_t threads_must_close()
         return FALSE;
 
     int _curr_clients = 0;
-    GET_VAR_MUTEX(ll_count(singleton_server->clients_connected), _curr_clients, &singleton_server->clients_list_mutex);
+    GET_VAR_MUTEX(singleton_server->clients_count, _curr_clients, &singleton_server->clients_count_mutex);
     return _curr_clients <= 0;
 }
 
@@ -130,35 +133,75 @@ logging_t* get_log()
     return singleton_server->logging;
 }
 
+packet_t* load_packet_or_disconnect(int fd)
+{
+    packet_t* req = read_packet_from_fd(fd);
+
+    if(is_packet_valid(req))
+    {
+        if(packet_get_op(req) == OP_CLOSE_CONN)
+        {
+            LOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
+            SET_VAR_MUTEX(singleton_server->clients_count, singleton_server->clients_count - 1, &singleton_server->clients_count_mutex);
+            UNLOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
+
+            acquire_write_lock_fs(singleton_server->fs);
+            notify_client_disconnected_fs(singleton_server->fs, fd);
+            release_write_lock_fs(singleton_server->fs);
+            
+            LOG_EVENT("OP_CLOSE_CONN client disconnected with id %d", -1, fd);
+
+            destroy_packet(req);
+            return NULL;
+        }
+    }
+    else
+    {
+        destroy_packet(req);
+        req = NULL;
+    }
+
+    return req;
+}
+
 void* handle_client_requests(void* data)
 {
     pthread_t curr = pthread_self();
 
     PRINT_INFO_DEBUG("Running worker thread %lu.", curr);
+    notification_t type = R_ADD_CLIENT;
+    char msg_add_client[sizeof(notification_t) + sizeof(int)];
+    memcpy(msg_add_client, &type, sizeof(notification_t));
+
     bool_t must_close = FALSE;
     while(!threads_must_close())
     {
-        LOCK_MUTEX(&singleton_server->requests_queue_mutex);
-        while(count_q(singleton_server->requests_queue) == 0)
+        LOCK_MUTEX(&singleton_server->clients_pending_mutex);
+        while(count_q(singleton_server->clients_pending) == 0)
         {
-            COND_WAIT(&singleton_server->request_received_cond, &singleton_server->requests_queue_mutex);
-            BREAK_ON_CLOSE_CONDITION_MUTEX(must_close, &singleton_server->requests_queue_mutex);
+            COND_WAIT(&singleton_server->clients_pending_cond, &singleton_server->clients_pending_mutex);
+            BREAK_ON_CLOSE_CONDITION(must_close, &singleton_server->clients_pending_mutex);
         }
 
         // quit worker loop if signal
         if(must_close)
             break;
 
-        packet_t* request = (packet_t*)dequeue(singleton_server->requests_queue);
-        UNLOCK_MUTEX(&singleton_server->requests_queue_mutex);
+        int* client_pending_ptr = (int*)dequeue(singleton_server->clients_pending);
+        UNLOCK_MUTEX(&singleton_server->clients_pending_mutex);
 
+        int client_pending = *client_pending_ptr;
+        free(client_pending_ptr);
+
+        if(client_pending == -1)
+            break;
+
+        packet_t* request = load_packet_or_disconnect(client_pending);
         if(request == NULL)
-        {
-            PRINT_WARNING_DEBUG(EINVAL, "[W/%lu] Request null, skipping.", curr);
             continue;
-        }
 
-        PRINT_INFO_DEBUG("[W/%lu] Handling client with id %d.", curr, packet_get_sender(request));
+        int sender = packet_get_sender(request);
+        PRINT_INFO_DEBUG("[W/%lu] Handling client with id %d.", curr, sender);
         packet_t* res_packet = create_packet(OP_OK, 0);
 
         int res;
@@ -227,12 +270,15 @@ void* handle_client_requests(void* data)
             }
 
             // send the packet OK/ERROR
-            res = send_packet_to_fd(packet_get_sender(request), res_packet);
+            res = send_packet_to_fd(sender, res_packet);
             if(res == -1)
             {
-                PRINT_WARNING(errno, "Cannot send error packet to fd(%d)!", packet_get_sender(request));
+                PRINT_WARNING(errno, "Cannot send error packet to fd(%d)!", sender);
             }
         }
+
+        memcpy(msg_add_client + sizeof(notification_t), &sender, sizeof(int));
+        write(singleton_server->pipe_connections_handler[1], msg_add_client, sizeof(msg_add_client));
 
         destroy_packet(request);
         destroy_packet(res_packet);
@@ -326,54 +372,112 @@ int initialize_workers()
 
 void* handle_connections(void* params)
 {
-    fd_set main_set;
-    FD_ZERO(&main_set);
-    FD_SET(singleton_server->server_socket_id, &main_set);
-    FD_SET(singleton_server->signal_pipe_accepter[0], &main_set);
-    int max_fs = MAX(singleton_server->server_socket_id, singleton_server->signal_pipe_accepter[0]);
+    FD_ZERO(&singleton_server->clients_set_connected);
+    FD_SET(singleton_server->server_socket_id, &singleton_server->clients_set_connected);
+    FD_SET(singleton_server->pipe_connections_handler[0], &singleton_server->clients_set_connected);
+    singleton_server->clients_set_max_id = MAX(singleton_server->server_socket_id, singleton_server->pipe_connections_handler[0]);
 
-    while(get_quit_signal() == S_NONE)
+    bool_t soft_close_in_progress = FALSE;
+    while(!threads_must_close())
     {
-        fd_set current_set = main_set;
-        int res = select(max_fs + 1, &current_set, NULL, NULL, NULL);
+        fd_set current_set;
+        int max_fds;
+
+        LOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
+        current_set = singleton_server->clients_set_connected;
+        max_fds = singleton_server->clients_set_max_id;
+        UNLOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
+
+        int res = select(max_fds + 1, &current_set, NULL, NULL, NULL);
         if(res <= 0)
             continue;
-        if(FD_ISSET(singleton_server->signal_pipe_accepter[0], &current_set))
+        if(FD_ISSET(singleton_server->pipe_connections_handler[0], &current_set))
         {
-            quit_signal_t sgn;
-            read(singleton_server->signal_pipe_accepter[0], &sgn, sizeof(quit_signal_t));
-            if(sgn != S_NONE)
-                break;
+            notification_t type;
+            read(singleton_server->pipe_connections_handler[0], &type, sizeof(notification_t));
+
+            if(type == R_CHECK_FLAG)
+            {
+                PRINT_WARNING(0, "CHECK ACPT");
+                quit_signal_t sgn;
+                read(singleton_server->pipe_connections_handler[0], &sgn, sizeof(quit_signal_t));
+                if(sgn == S_FAST)
+                    break;
+                else if(sgn == S_SOFT)
+                {
+                    soft_close_in_progress = TRUE;
+                }
+            }
+            else if(type == R_ADD_CLIENT)
+            {
+                int fd;
+                read(singleton_server->pipe_connections_handler[0], &fd, sizeof(int));
+                LOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
+                FD_SET(fd, &singleton_server->clients_set_connected);
+                singleton_server->clients_set_max_id = MAX(fd, singleton_server->clients_set_max_id);
+                UNLOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
+            }
+
+            --res;
         }
 
-        int new_id = accept(singleton_server->server_socket_id, NULL, 0);
-        if(new_id == -1)
-            continue;
+        if(FD_ISSET(singleton_server->server_socket_id, &current_set))
+        {
+            int new_id = accept(singleton_server->server_socket_id, NULL, 0);
+            if(new_id != -1)
+            {
+                if(soft_close_in_progress)
+                {
+                    close(new_id);
+                }
+                else
+                {
+                    LOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
+                    FD_SET(new_id, &singleton_server->clients_set_connected);
+                    singleton_server->clients_set_max_id = MAX(new_id, singleton_server->clients_set_max_id);
+                    UNLOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
+
+                    LOG_EVENT("OP_CONN client connected with id %d!", -1, new_id);
+
+                    // aggiorno eventualmente il massimo num di client concorrenti
+                    int n_clients;
+                    GET_VAR_MUTEX(singleton_server->clients_count, n_clients, &singleton_server->clients_count_mutex);
+                    if(n_clients + 1 > max_client_alltogether)
+                        max_client_alltogether = n_clients;
+                }
+            }
+            --res;
+        }
         
-        int* new_client;
-        MAKE_COPY(new_client, int, new_id);
-
-        int num_clients;
-
-        LOCK_MUTEX(&singleton_server->clients_list_mutex);
-        ll_add_head(singleton_server->clients_connected, new_client);
-        num_clients =  ll_count(singleton_server->clients_connected);
-        UNLOCK_MUTEX(&singleton_server->clients_list_mutex);
-
-        LOCK_MUTEX(&singleton_server->clients_set_mutex);
-        if(!FD_ISSET(new_id, &singleton_server->clients_connected_set))
+        while(res > 0 && max_fds >= 0)
         {
-            FD_SET(new_id, &singleton_server->clients_connected_set);
+            if(max_fds == singleton_server->server_socket_id || max_fds == singleton_server->pipe_connections_handler[0])
+            {
+                --max_fds;
+                continue;
+            }
+
+            if(FD_ISSET(max_fds, &current_set))
+            {
+                int* new_client;
+                MAKE_COPY(new_client, int, max_fds);
+
+                int num_reqs = 0;
+
+                EXEC_WITH_MUTEX(FD_CLR(max_fds, &singleton_server->clients_set_connected), &singleton_server->clients_set_connected_mutex);
+
+                LOCK_MUTEX(&singleton_server->clients_pending_mutex);
+                enqueue(singleton_server->clients_pending, new_client);
+                num_reqs = count_q(singleton_server->clients_pending);
+
+                if(num_reqs == 1)
+                    COND_SIGNAL(&singleton_server->clients_pending_cond);
+                UNLOCK_MUTEX(&singleton_server->clients_pending_mutex);
+                --res;  
+            }
+
+            --max_fds;
         }
-        UNLOCK_MUTEX(&singleton_server->clients_set_mutex);
-
-        LOG_EVENT("OP_CONN client connected with id %d!", -1, new_id);
-
-        COND_SIGNAL(&singleton_server->clients_connected_cond);
-
-        // aggiorno eventualmente il massimo num di client concorrenti
-        if(num_clients > max_client_alltogether)
-            max_client_alltogether = num_clients;
     }
 
     LOG_EVENT("Quitting thread accepter! PID: %lu", -1, pthread_self());
@@ -383,113 +487,10 @@ void* handle_connections(void* params)
 int initialize_connection_accepter()
 {
     int error;
-    FD_ZERO(&singleton_server->clients_connected_set);
-    CHECK_ERROR_NEQ(error, pthread_create(&thread_accepter_id, NULL, &handle_connections, NULL), 0, ERR_SOCKET_INIT_ACCEPTER, THREAD_CREATE_FATAL);
+    CHECK_ERROR_NEQ(error, pthread_create(&thread_connections_id, NULL, &handle_connections, NULL), 0, ERR_SOCKET_INIT_ACCEPTER, THREAD_CREATE_FATAL);
 
-    LOG_EVENT("Created new thread accepter! PID: %lu", -1, thread_accepter_id);
-    connection_accepter_initialized = TRUE;
-    return SERVER_OK;
-}
-
-void* handle_clients_packets()
-{
-    bool_t must_close = FALSE;
-
-    while(!threads_must_close())
-    {
-        LOCK_MUTEX(&singleton_server->clients_list_mutex);
-        size_t n_clients;
-        while((n_clients = ll_count(singleton_server->clients_connected)) == 0)
-        {
-            COND_WAIT(&singleton_server->clients_connected_cond, &singleton_server->clients_list_mutex);
-            BREAK_ON_CLOSE_CONDITION(must_close, &singleton_server->clients_list_mutex);
-        }
-
-        if(must_close)
-            break;
-
-        int max_fd_clients = ll_get_max_int(singleton_server->clients_connected);
-        UNLOCK_MUTEX(&singleton_server->clients_list_mutex);
-
-        max_fd_clients = MAX(max_fd_clients, singleton_server->signal_pipe_reader[0]);
-
-        fd_set current_clients;
-        GET_VAR_MUTEX(singleton_server->clients_connected_set, current_clients, &singleton_server->clients_set_mutex);
-        FD_SET(singleton_server->signal_pipe_reader[0], &current_clients);
-        int res = select(max_fd_clients + 1, &current_clients, NULL, NULL, NULL);
-        if(res <= 0)
-            continue;
-        if(FD_ISSET(singleton_server->signal_pipe_reader[0], &current_clients))
-        {
-            read(singleton_server->signal_pipe_reader[0], &must_close, sizeof(quit_signal_t));
-            if(threads_must_close())
-                break;
-        }
-
-        LOCK_MUTEX(&singleton_server->clients_list_mutex);
-        node_t* curr_client = ll_get_head_node(singleton_server->clients_connected);
-
-        while(curr_client)
-        {
-            int curr_session = *((int*)node_get_value(curr_client));
-
-            if(FD_ISSET(curr_session, &current_clients))
-            {
-                packet_t* req = read_packet_from_fd(curr_session);
-
-                if(is_packet_valid(req))
-                {
-                    if(packet_get_op(req) == OP_CLOSE_CONN)
-                    {
-                        // chiudo la connessione
-                        EXEC_WITH_MUTEX(FD_CLR(curr_session, &singleton_server->clients_connected_set), &singleton_server->clients_set_mutex);
-
-                        node_t* temp = node_get_next(curr_client);
-                        free(node_get_value(curr_client));
-                        ll_remove_node(singleton_server->clients_connected, curr_client);
-                        curr_client = temp;
-
-                        acquire_write_lock_fs(singleton_server->fs);
-                        notify_client_disconnected_fs(singleton_server->fs, curr_session);
-                        release_write_lock_fs(singleton_server->fs);
-                        
-                        LOG_EVENT("OP_CLOSE_CONN client disconnected with id %d", -1, curr_session);
-
-                        destroy_packet(req);
-                        continue;
-                    }
-
-                    LOCK_MUTEX(&singleton_server->requests_queue_mutex);
-
-                    enqueue(singleton_server->requests_queue, (void*)req);
-                    if(count_q(singleton_server->requests_queue) == 1)
-                    {
-                        COND_SIGNAL(&singleton_server->request_received_cond);
-                    }
-
-                    UNLOCK_MUTEX(&singleton_server->requests_queue_mutex);
-                }
-                else
-                    destroy_packet(req);
-            }
-
-            curr_client = node_get_next(curr_client);
-        }
-        UNLOCK_MUTEX(&singleton_server->clients_list_mutex);
-    }
-
-    PRINT_INFO("Quitting packet reader.");
-    LOG_EVENT("Quitting thread reader! PID: %lu", -1, pthread_self());
-    return NULL;
-}
-
-int initialize_reader()
-{
-    int error;
-    CHECK_ERROR_NEQ(error, pthread_create(&thread_reader_id, NULL, &handle_clients_packets, NULL), 0, ERR_SERVER_INIT_READER, THREAD_CREATE_FATAL);
-
-    LOG_EVENT("Created new thread reader! PID: %lu", -1, thread_reader_id);
-    reader_initialized = TRUE;
+    LOG_EVENT("Created new thread accepter! PID: %lu", -1, thread_connections_id);
+    connections_handler_initialized = TRUE;
     return SERVER_OK;
 }
 
@@ -500,19 +501,16 @@ int server_wait_for_threads()
     // wait for a closing signal
     GET_VAR_MUTEX(singleton_server->quit_signal, closing_signal, &singleton_server->quit_signal_mutex);
 
-    write(singleton_server->signal_pipe_accepter[1], &closing_signal, sizeof(quit_signal_t));
+    notification_t type = R_CHECK_FLAG;
+    char msg_check_flag[sizeof(notification_t) + sizeof(quit_signal_t)];
+    memcpy(msg_check_flag, &type, sizeof(notification_t));
+    memcpy(msg_check_flag + sizeof(notification_t), &closing_signal, sizeof(quit_signal_t));
+
+    write(singleton_server->pipe_connections_handler[1], msg_check_flag, sizeof(msg_check_flag));
     PRINT_INFO_DEBUG("Joining accepter thread.");
-    pthread_join(thread_accepter_id, NULL);
+    pthread_join(thread_connections_id, NULL);
 
-    // IN CASE THE READER IS IN A WAIT STATE
-    COND_SIGNAL(&singleton_server->clients_connected_cond);
-    // IN CASE ITS IN A BLOCKING SELECT
-    write(singleton_server->signal_pipe_reader[1], &closing_signal, sizeof(quit_signal_t));
-    PRINT_INFO_DEBUG("Joining reader thread.");
-    pthread_join(thread_reader_id, NULL);
-
-    // either is S_FAST or S_SOFT we need to broadcast workers since the reader already finished
-    COND_BROADCAST(&singleton_server->request_received_cond);
+    COND_BROADCAST(&singleton_server->clients_pending_cond);
 
     PRINT_INFO_DEBUG("Joining workers thread.");
     for(int i = 0; i < workers_count; ++i)
@@ -520,13 +518,13 @@ int server_wait_for_threads()
         pthread_join(thread_workers_ids[i], NULL);
     }
 
+    close(singleton_server->server_socket_id);
     // log max clients simultaniously (max_clients_alltoghether)
     LOG_EVENT("FINAL_METRICS Max clients connected alltogether %u!", -1, max_client_alltogether);
 
     // log fs metrics
     shutdown_fs(singleton_server->fs);
     stop_log(singleton_server->logging);
-
     return SERVER_OK;
 }
 
@@ -534,25 +532,24 @@ int server_cleanup()
 {
     PRINT_INFO("Freeing memory.");
 
+    close(singleton_server->pipe_connections_handler[0]);
+    close(singleton_server->pipe_connections_handler[1]);
+
     free_fs(singleton_server->fs);
     free_log(singleton_server->logging);
-    ll_free(singleton_server->clients_connected, free);
-    free_q(singleton_server->requests_queue, FREE_FUNC(destroy_packet));
+    free_q(singleton_server->clients_pending, free);
     free(thread_workers_ids);
     destroy_packet(p_on_file_deleted_locks);
     destroy_packet(p_on_file_given_lock);
 
     PRINT_INFO("Closing socket and removing it.");
-    close(singleton_server->server_socket_id);
 
     pthread_mutex_destroy(&singleton_server->config_mutex);
     pthread_mutex_destroy(&singleton_server->quit_signal_mutex);
-    pthread_mutex_destroy(&singleton_server->clients_list_mutex);
-    pthread_mutex_destroy(&singleton_server->clients_set_mutex);
-    pthread_mutex_destroy(&singleton_server->requests_queue_mutex);
-
-    pthread_cond_destroy(&singleton_server->clients_connected_cond);
-    pthread_cond_destroy(&singleton_server->request_received_cond);
+    pthread_mutex_destroy(&singleton_server->clients_set_connected_mutex);
+    pthread_mutex_destroy(&singleton_server->clients_count_mutex);
+    pthread_mutex_destroy(&singleton_server->clients_pending_mutex);
+    pthread_cond_destroy(&singleton_server->clients_pending_cond);
 
     char socket_name[MAX_PATHNAME_API_LENGTH];
     config_get_socket_name(singleton_server->config, socket_name);
@@ -567,15 +564,12 @@ int start_server()
 {
     int lastest_status;
 
-    pipe(singleton_server->signal_pipe_reader);
-    pipe(singleton_server->signal_pipe_accepter);
+    pipe(singleton_server->pipe_connections_handler);
 
     // Initialize and run workers
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_workers, lastest_status);
     // Initialize and run connections
     INITIALIZE_SERVER_FUNCTIONALITY(initialize_connection_accepter, lastest_status);
-    // Initialize and run reader
-    INITIALIZE_SERVER_FUNCTIONALITY(initialize_reader, lastest_status);
 
     // needed for threads metrics
     set_workers_fs(singleton_server->fs, thread_workers_ids, workers_count);
@@ -596,18 +590,15 @@ int init_server(const configuration_params_t* config)
     memset(singleton_server, 0, sizeof(struct server));
 
     singleton_server->config = (configuration_params_t*)config;
-    
+
     INIT_MUTEX(&singleton_server->config_mutex);
     INIT_MUTEX(&singleton_server->quit_signal_mutex);
-    INIT_MUTEX(&singleton_server->clients_list_mutex);
-    INIT_MUTEX(&singleton_server->clients_set_mutex);
-    INIT_MUTEX(&singleton_server->requests_queue_mutex);
+    INIT_MUTEX(&singleton_server->clients_count_mutex);
+    INIT_MUTEX(&singleton_server->clients_set_connected_mutex);
+    INIT_MUTEX(&singleton_server->clients_pending_mutex);
+    INIT_COND(&singleton_server->clients_pending_cond);
 
-    INIT_COND(&singleton_server->clients_connected_cond);
-    INIT_COND(&singleton_server->request_received_cond);
-
-    singleton_server->clients_connected = ll_create();
-    singleton_server->requests_queue = create_q();
+    singleton_server->clients_pending = create_q();
 
     singleton_server->fs = create_fs(config_get_max_server_size(config),
                                      config_get_max_files_count(config));

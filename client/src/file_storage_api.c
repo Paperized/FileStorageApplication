@@ -139,6 +139,7 @@ int closeConnection(const char* sockname)
     int error;
     SEND_TO_SERVER(of_packet, error);
 
+    destroy_packet(of_packet);
     return close(fd_server);
 }
 
@@ -219,7 +220,6 @@ int readNFiles(int N, const char* dirname)
         void* data = netfile_get_data(file_received);
         size_t data_size = netfile_get_data_size(file_received);
         data_size_read += data_size;
-        PRINT_INFO("%s", pathname);
         if(pathname)
         {
             // save file
@@ -239,7 +239,7 @@ int readNFiles(int N, const char* dirname)
             }
         }
         
-        free(file_received);
+        free_netfile(file_received);
     }
 
     if(g_params->print_operations)
@@ -273,6 +273,7 @@ int writeFile(const char* pathname, const char* dirname)
     if(data_size > 0)
     {
         WRITE_PACKET(rf_packet, error, data, data_size);
+        free(data);
     }
 
     SEND_TO_SERVER(rf_packet, error);

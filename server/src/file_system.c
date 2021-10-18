@@ -270,6 +270,7 @@ int notify_memory_changed_fs(file_system_t* fs, int amount)
     SET_VAR_RWLOCK(fs->metrics.max_memory_reached,
                         MAX(fs->metrics.max_memory_reached, fs->current_used_memory),
                         &fs->rwlock_metrics);
+
     return fs->current_used_memory;
 }
 

@@ -165,12 +165,13 @@ int read_args_client_params(int argc, char** argv, client_params_t* params)
 
         case 'R':
         case 't':
-            BREAK_ON_NULL(optarg);
+            num = 0;
             n = strtok_r(optarg, COMMA, &save_ptr);
-            BREAK_ON_NULL(n);
+            if(n)
+                num = strtol(n, NULL, 10);
             CHECK_FATAL_EQ(api_opt, malloc(sizeof(api_option_t)), NULL, NO_MEM_FATAL);
             api_opt->op = c;
-            api_opt->args = (long*)strtol(n, NULL, 10);
+            api_opt->args = (void*)num;
             enqueue(params->api_operations, api_opt);
             break;
 
