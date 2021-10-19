@@ -8,8 +8,8 @@
 #include <dirent.h>
 
 #include "client_params.h"
-#include "file_storage_api.h"
 #include "utils.h"
+#include "file_storage_api.h"
 
 void print_help();
 

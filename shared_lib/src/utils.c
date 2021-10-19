@@ -16,10 +16,9 @@ int get_file_size(FILE* f)
     return size;
 }
 
-void* custom_malloc(size_t size)
+bool_t is_valid_op(server_packet_op_t op)
 {
-    PRINT_INFO("Allocating: %fMB", (float)((float)size/1000000));
-    return malloc(size);
+    return op >= OP_OPEN_FILE && op <= OP_OK;
 }
 
 int read_file_util(const char* pathname, void** buffer, size_t* size)
@@ -149,4 +148,86 @@ int filesize_string_to_byte(char* str, unsigned int max_length)
 
     PRINT_INFO("Not recognized unit of measure, BYTE choosen by default!");
     return n_atoi(str, len - 2);
+}
+
+/**
+ * @brief Reads up to given bytes from given descriptor, saves data to given pre-allocated buffer.
+ * @returns read size on success, -1 on failure.
+ * @exception The function may fail and set "errno" for any of the errors specified for the routine "read".
+*/
+int readn(long fd, void* buf, size_t size)
+{
+    RET_IF(size == 0, 0);
+	size_t left = size;
+	int r;
+	char* bufptr = (char*) buf;
+	while (left > 0)
+	{
+		if ((r = read((int) fd, bufptr, left)) == -1)
+		{
+			if (errno == EINTR) continue;
+			return -1;
+		}
+		if (r == 0) return 0; // EOF
+		left -= r;
+		bufptr += r;
+	}
+	return size;
+}
+
+/**
+ * @brief Writes buffer up to given size to given descriptor.
+ * @returns 1 on success, -1 on failure.
+ * @exception The function may fail and set "errno" for any of the errors specified for routine "write".
+*/
+int writen(long fd, void* buf, size_t size)
+{
+    RET_IF(size == 0, 1);
+	size_t left = size;
+	int r;
+	char* bufptr = (char*) buf;
+	while (left > 0)
+	{
+		if ((r = write((int) fd, bufptr, left)) == -1)
+		{
+			if (errno == EINTR) continue;
+			return -1;
+		}
+		if (r == 0) return 0;
+		left -= r;
+		bufptr += r;
+	}
+	return 1;
+}
+
+int readn_string(long fd, char* buf, size_t max_len)
+{
+    RET_IF(!buf || max_len == 0, 0);
+    size_t str_len;
+    int res = readn(fd, &str_len, sizeof(size_t));
+    if(res <= 0)
+        return res;
+    if(str_len == 0)
+        return 0;
+    
+    size_t actual_len = MIN(str_len, max_len);
+    res = readn(fd, buf, actual_len);
+    if(res < 0)
+        return res;
+    
+    buf[actual_len] = '\0';
+    return actual_len;
+}
+
+int writen_string(long fd, const char* buf, size_t len)
+{
+    if(writen(fd, &len, sizeof(size_t)) == -1)
+        return -1;
+
+    if(len == 0)
+    {
+        return 1;
+    }
+
+    return writen(fd, (void*)buf, len);
 }

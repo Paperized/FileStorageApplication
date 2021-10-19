@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include "queue.h"
 #include "server_api_utils.h"
+
+#undef APP_NAME
+#define APP_NAME "Client"
 #include "utils.h"
 
 typedef struct client_params {

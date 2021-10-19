@@ -4,6 +4,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <unistd.h>
+
+#include "server_api_utils.h"
+
+#if !defined(APP_NAME)
+    #define APP_NAME ""
+    #define __APP_NAME ""
+#else
+    #define __APP_NAME APP_NAME "-"
+#endif
 
 typedef enum bool { FALSE, TRUE } bool_t;
 
@@ -11,11 +21,11 @@ typedef enum bool { FALSE, TRUE } bool_t;
 #define START_YELLOW_CONSOLE "\033[33m"
 #define RESET_COLOR_CONSOLE "\033[0m\n"
 
-#define PRINT_WITH_COLOR(color, title, errno_code, message, ...)  printf(color "[" title "] " message " %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, ##__VA_ARGS__, (__FILE__), __func__, __LINE__, strerror(errno_code));
+#define PRINT_WITH_COLOR(color, title, errno_code, message, ...)  printf(color "[" __APP_NAME title "] " message " %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, ##__VA_ARGS__, (__FILE__), __func__, __LINE__, strerror(errno_code));
 #define PRINT_WARNING(errno_code, message, ...)  PRINT_WITH_COLOR(START_YELLOW_CONSOLE, "Warning", errno_code, message, ## __VA_ARGS__)
 #define PRINT_ERROR(errno_code, message, ...)  PRINT_WITH_COLOR(START_RED_CONSOLE, "Error", errno_code, message, ## __VA_ARGS__)
 #define PRINT_FATAL(errno_code, message, ...)  PRINT_WITH_COLOR(START_RED_CONSOLE, "Fatal", errno_code, message, ## __VA_ARGS__)
-#define PRINT_INFO(message, ...)     printf("[Info] " message "\n", ## __VA_ARGS__)
+#define PRINT_INFO(message, ...)     printf("[" __APP_NAME "Info] " message "\n", ## __VA_ARGS__)
 
 #define DEBUG_LOG
 
@@ -129,8 +139,26 @@ int append_file_util(const char* pathname, void* buffer, size_t size);
 char* get_filename_from_path(const char* path, size_t path_len, size_t* filename_len);
 int buildpath(char* dest, const char* src1, const char* src2, size_t src1length, size_t src2length);
 int filesize_string_to_byte(char* str, unsigned int max_length);
-void* custom_malloc(size_t size);
+bool_t is_valid_op(server_packet_op_t op);
 #define NO_MEM_FATAL "Cannot allocate more memory!"
 #define THREAD_CREATE_FATAL "Cannot create new thread!"
+
+/**
+ * @brief Reads up to given bytes from given descriptor, saves data to given pre-allocated buffer.
+ * @returns read size on success, -1 on failure.
+ * @exception The function may fail and set "errno" for any of the errors specified for the routine "read".
+*/
+int readn(long fd, void* buf, size_t size);
+
+/**
+ * @brief Writes buffer up to given size to given descriptor.
+ * @returns 1 on success, -1 on failure.
+ * @exception The function may fail and set "errno" for any of the errors specified for routine "write".
+*/
+int writen(long fd, void* buf, size_t size);
+
+int readn_string(long fd, char* buf, size_t max_len);
+
+int writen_string(long fd, const char* buf, size_t len);
 
 #endif

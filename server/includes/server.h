@@ -1,12 +1,13 @@
 #ifndef _SERVER_
 #define _SERVER_
 
+#undef APP_NAME
+#define APP_NAME "Server"
+
 #include <pthread.h>
 
-#include "packet.h"
 #include "config_params.h"
 #include "queue.h"
-
 #include "utils.h"
 #include "logging.h"
 #include "file_system.h"

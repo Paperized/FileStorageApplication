@@ -43,7 +43,7 @@ SERVER_LOG_NAME=$POLICY-logs.log" > $POLICY-config.txt
     # Remove linked_list.h file ERROR -> no lock
     # Obtain linked_list.h lock OK
     # Remove again linked_list.h OK
-    $SCRIPTDIR/utils/run_client.sh 2 $TMP_SOCKET "-p -t 200 -W $DATADIR/file9.txt,$DATADIR/file10.txt,$DATADIR/file11.txt,$DATADIR/file12.txt,$DATADIR/file13.txt,$DATADIR/file14.txt,$DATADIR/file15.txt -r $DATADIR/shared_lib/includes/linked_list.h,$DATADIR/shared_lib/includes/packet.h -c $DATADIR/shared_lib/includes/linked_list.h -l $DATADIR/shared_lib/includes/linked_list.h -c $DATADIR/shared_lib/includes/linked_list.h"
+    $SCRIPTDIR/utils/run_client.sh 2 $TMP_SOCKET "-p -t 200 -W $DATADIR/file9.txt,$DATADIR/file10.txt,$DATADIR/file11.txt,$DATADIR/file12.txt,$DATADIR/file13.txt,$DATADIR/file14.txt,$DATADIR/file15.txt -r $DATADIR/shared_lib/includes/linked_list.h,$DATADIR/shared_lib/includes/network_file.h -c $DATADIR/shared_lib/includes/linked_list.h -l $DATADIR/shared_lib/includes/linked_list.h -c $DATADIR/shared_lib/includes/linked_list.h"
     # Lock three files OK
     # Remove queue.h OK
     # Lock queue.h file ERROR

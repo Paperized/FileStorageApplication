@@ -1,5 +1,5 @@
-#ifndef __REPLACED_FILE__
-#define __REPLACED_FILE__
+#ifndef __NETWORK_FILE__
+#define __NETWORK_FILE__
 
 #include <stdlib.h>
 #include "queue.h"

@@ -46,7 +46,7 @@ SERVER_BACKLOG_NUM=10
 SERVER_LOG_NAME=$POLICY-logs.log" > $POLICY-config.txt
 
     #gdb -ex "run ./$POLICY-config.txt" -ex bt -ex quit $SERVER_PATH/server.out &
-    valgrind --leak-check=full $SERVER_PATH/server.out ./$POLICY-config.txt &
+    $SERVER_PATH/server.out ./$POLICY-config.txt &
     SERVER_PID=$!
     sleep 5s
 
@@ -78,8 +78,8 @@ SERVER_LOG_NAME=$POLICY-logs.log" > $POLICY-config.txt
 echo "------------- RUNNING TEST3 FIFO -------------"
 runTest FIFO
 
-#echo "------------- RUNNING TEST3  LRU -------------"
-#runTest LRU
+echo "------------- RUNNING TEST3  LRU -------------"
+runTest LRU
 
-#echo "------------- RUNNING TEST3  LFU -------------"
-#runTest LFU
+echo "------------- RUNNING TEST3  LFU -------------"
+runTest LFU

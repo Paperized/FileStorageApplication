@@ -133,37 +133,6 @@ logging_t* get_log()
     return singleton_server->logging;
 }
 
-packet_t* load_packet_or_disconnect(int fd)
-{
-    packet_t* req = read_packet_from_fd(fd);
-
-    if(is_packet_valid(req))
-    {
-        if(packet_get_op(req) == OP_CLOSE_CONN)
-        {
-            LOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
-            SET_VAR_MUTEX(singleton_server->clients_count, singleton_server->clients_count - 1, &singleton_server->clients_count_mutex);
-            UNLOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
-
-            acquire_write_lock_fs(singleton_server->fs);
-            notify_client_disconnected_fs(singleton_server->fs, fd);
-            release_write_lock_fs(singleton_server->fs);
-            
-            LOG_EVENT("OP_CLOSE_CONN client disconnected with id %d", -1, fd);
-
-            destroy_packet(req);
-            return NULL;
-        }
-    }
-    else
-    {
-        destroy_packet(req);
-        req = NULL;
-    }
-
-    return req;
-}
-
 void* handle_client_requests(void* data)
 {
     pthread_t curr = pthread_self();
@@ -180,7 +149,7 @@ void* handle_client_requests(void* data)
         while(count_q(singleton_server->clients_pending) == 0)
         {
             COND_WAIT(&singleton_server->clients_pending_cond, &singleton_server->clients_pending_mutex);
-            BREAK_ON_CLOSE_CONDITION(must_close, &singleton_server->clients_pending_mutex);
+            BREAK_ON_CLOSE_CONDITION_MUTEX(must_close, &singleton_server->clients_pending_mutex);
         }
 
         // quit worker loop if signal
@@ -196,93 +165,99 @@ void* handle_client_requests(void* data)
         if(client_pending == -1)
             break;
 
-        packet_t* request = load_packet_or_disconnect(client_pending);
-        if(request == NULL)
-            continue;
+        server_packet_op_t request_op;
+        // on connection closed
+        if(readn(client_pending, &request_op, sizeof(server_packet_op_t)) == 0)
+        {
+            LOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
+            SET_VAR_MUTEX(singleton_server->clients_count, singleton_server->clients_count - 1, &singleton_server->clients_count_mutex);
+            UNLOCK_MUTEX(&singleton_server->clients_set_connected_mutex);
 
-        int sender = packet_get_sender(request);
-        PRINT_INFO_DEBUG("[W/%lu] Handling client with id %d.", curr, sender);
-        packet_t* res_packet = create_packet(OP_OK, 0);
+            acquire_write_lock_fs(singleton_server->fs);
+            notify_client_disconnected_fs(singleton_server->fs, client_pending);
+            release_write_lock_fs(singleton_server->fs);
+            
+            LOG_EVENT("OP_CLOSE_CONN client disconnected with id %d", -1, client_pending);
+            continue;
+        }
+
+        if(!is_valid_op(request_op))
+        {
+            PRINT_ERROR_DEBUG(EINVAL, "Operation not valid?? %d", (int)request_op);
+            close(client_pending);
+            continue;
+        }
+
+        PRINT_INFO_DEBUG("[W/%lu] Handling client with id %d.", curr, client_pending);
 
         int res;
         // Handle the message
-        switch(packet_get_op(request))
+        switch(request_op)
         {
             case OP_OPEN_FILE:
                 PRINT_INFO_DEBUG("[W/%lu] OP_OPEN_FILE request operation.", curr);
-                res = handle_open_file_req(request, res_packet);
+                res = handle_open_file_req(client_pending);
                 break;
 
             case OP_LOCK_FILE:
                 PRINT_INFO_DEBUG("[W/%lu] OP_LOCK_FILE request operation.", curr);
-                res = handle_lock_file_req(request, res_packet);
+                res = handle_lock_file_req(client_pending);
                 break;
 
             case OP_UNLOCK_FILE:
                 PRINT_INFO_DEBUG("[W/%lu] OP_UNLOCK_FILE request operation.", curr);
-                res = handle_unlock_file_req(request, res_packet);
+                res = handle_unlock_file_req(client_pending);
                 break;
 
             case OP_REMOVE_FILE:
                 PRINT_INFO_DEBUG("[W/%lu] OP_REMOVE_FILE request operation.", curr);
-                res = handle_remove_file_req(request, res_packet);
+                res = handle_remove_file_req(client_pending);
                 break;
 
             case OP_WRITE_FILE:
                 PRINT_INFO_DEBUG("[W/%lu] OP_WRITE_FILE request operation.", curr);
-                res = handle_write_file_req(request, res_packet);
+                res = handle_write_file_req(client_pending);
                 break;
 
             case OP_APPEND_FILE:
                 PRINT_INFO_DEBUG("[W/%lu] OP_APPEND_FILE request operation.", curr);
-                res = handle_append_file_req(request, res_packet);
+                res = handle_append_file_req(client_pending);
                 break;
             
             case OP_READ_FILE:
                 PRINT_INFO_DEBUG("[W/%lu] OP_READ_FILE request operation.", curr);
-                res = handle_read_file_req(request, res_packet);
+                res = handle_read_file_req(client_pending);
                 break;
 
             case OP_READN_FILES:
                 PRINT_INFO_DEBUG("[W/%lu] OP_READN_FILES request operation.", curr);
-                res = handle_nread_files_req(request, res_packet);
+                res = handle_nread_files_req(client_pending);
                 break;
 
             case OP_CLOSE_FILE:
                 PRINT_INFO_DEBUG("[W/%lu] OP_CLOSE_FILE request operation.", curr);
-                res = handle_close_file_req(request, res_packet);
+                res = handle_close_file_req(client_pending);
                 break;
 
             default:
                 PRINT_INFO_DEBUG("[W/%lu] Unknown request operation, skipping request.", curr);
+                res = -1;
                 break;
         }
 
         notify_worker_handled_req_fs(get_fs(), curr);
         // res == -1 doesn't send any packet, a future request will take care of this (e.g. locks)
-        if(res > -1)
+        if(res > 0)
         {
-            // if its an errno value
-            if(res != 0)
-            {
-                packet_set_op(res_packet, OP_ERROR);
-                write_data(res_packet, &res, sizeof(int));
-            }
-
-            // send the packet OK/ERROR
-            res = send_packet_to_fd(sender, res_packet);
-            if(res == -1)
-            {
-                PRINT_WARNING(errno, "Cannot send error packet to fd(%d)!", sender);
-            }
+            server_packet_op_t res_op = OP_ERROR;
+            if(writen(client_pending, &res_op, sizeof(res_op)))
+                writen(client_pending, &res, sizeof(res));
         }
 
-        memcpy(msg_add_client + sizeof(notification_t), &sender, sizeof(int));
-        write(singleton_server->pipe_connections_handler[1], msg_add_client, sizeof(msg_add_client));
-
-        destroy_packet(request);
-        destroy_packet(res_packet);
         PRINT_INFO_DEBUG("[W/%lu] Finished handling.", curr);
+
+        memcpy(msg_add_client + sizeof(notification_t), &client_pending, sizeof(int));
+        write(singleton_server->pipe_connections_handler[1], msg_add_client, sizeof(msg_add_client));
     }
 
     // on close
@@ -299,7 +274,12 @@ quit_signal_t server_wait_end_signal()
     CHECK_ERROR_EQ(error, sigaddset(&managed_signals, SIGQUIT), -1, S_FAST, "Couldn't add SIGQUIT to sigset!");
     CHECK_ERROR_EQ(error, sigaddset(&managed_signals, SIGHUP), -1, S_FAST, "Couldn't add SIGHUP to sigset!");
     CHECK_ERROR_EQ(error, sigaddset(&managed_signals, SIGINT), -1, S_FAST, "Couldn't add SIGINT to sigset!");
-    CHECK_ERROR_EQ(error, pthread_sigmask(SIG_SETMASK, &managed_signals, NULL), -1, S_FAST, "Couldn't set new sigmask!");
+    CHECK_ERROR_EQ(error, pthread_sigmask(SIG_BLOCK, &managed_signals, NULL), -1, S_FAST, "Couldn't set new sigmask!");
+
+    struct sigaction sig_act;
+    memset(&sig_act, 0, sizeof(sig_act));
+    sig_act.sa_handler = SIG_IGN;
+    CHECK_ERROR_EQ(error, sigaction(SIGPIPE, &sig_act, NULL), -1, S_FAST, "Couldn't ignore pipe signal!");
 
     quit_signal_t local_quit_signal = S_NONE;
     quit_signal_t shared_quit_signal;
@@ -398,7 +378,6 @@ void* handle_connections(void* params)
 
             if(type == R_CHECK_FLAG)
             {
-                PRINT_WARNING(0, "CHECK ACPT");
                 quit_signal_t sgn;
                 read(singleton_server->pipe_connections_handler[0], &sgn, sizeof(quit_signal_t));
                 if(sgn == S_FAST)
@@ -473,7 +452,7 @@ void* handle_connections(void* params)
                 if(num_reqs == 1)
                     COND_SIGNAL(&singleton_server->clients_pending_cond);
                 UNLOCK_MUTEX(&singleton_server->clients_pending_mutex);
-                --res;  
+                --res;
             }
 
             --max_fds;
@@ -539,8 +518,6 @@ int server_cleanup()
     free_log(singleton_server->logging);
     free_q(singleton_server->clients_pending, free);
     free(thread_workers_ids);
-    destroy_packet(p_on_file_deleted_locks);
-    destroy_packet(p_on_file_given_lock);
 
     PRINT_INFO("Closing socket and removing it.");
 
@@ -616,12 +593,6 @@ int init_server(const configuration_params_t* config)
     char policy[MAX_POLICY_LENGTH + 1];
     config_get_log_name(config, policy);
     set_policy_fs(singleton_server->fs, policy);
-
-    // unique packets used many times
-    p_on_file_deleted_locks = create_packet(OP_ERROR, sizeof(int));
-    int err_packet = EIDRM;
-    write_data(p_on_file_deleted_locks, &err_packet, sizeof(int));
-    p_on_file_given_lock = create_packet(OP_OK, sizeof(int));
 
     CHECK_ERROR_EQ(singleton_server->server_socket_id, socket(AF_UNIX, SOCK_STREAM, 0), -1, ERR_SOCKET_FAILED, "Couldn't initialize socket!");
 
