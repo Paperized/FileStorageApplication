@@ -1,4 +1,15 @@
 #!/bin/bash
+
+################################################################################################
+# This script runs the third test case, it generates some random data and a couple of files    #
+# copied by the current project folder code to carry out the test.                             #
+# This will start a certain number of client taken in input and will use the api server        #
+# simultaniously until the server runs out of time, if the client ends it will keep spawning   #
+# until the server is closed. [The tests sometime keeps spawning clients even if the server is #
+# close but nothing excessive]                                                                 #
+################################################################################################
+
+
 MAINDIR=$(pwd)
 NCLIENTS=$1
 TESTDIR=$MAINDIR/tests

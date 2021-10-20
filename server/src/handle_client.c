@@ -5,7 +5,7 @@
 #include "server.h"
 #include "replacement_policy.h"
 #include "handle_client.h"
-#include "network_file.h"
+#include "replaced_file.h"
 
 // Read a string(in this program we just read pathnames) for a max of MAX_PATHNAME_API_LENGTH characters
 // If the return status is -1 a problem occured with the sender (probably connection closed) and we return with an error
@@ -110,30 +110,30 @@ static int on_files_replaced(int client, bool_t are_replaced, bool_t send_back, 
     int data_cleaned = 0;
     int files_rem_str_index = 0;
     FOREACH_LL(repl_list) {
-        network_file_t* file = VALUE_IT_LL(network_file_t*);
-        size_t file_size = netfile_get_data_size(file);
+        replaced_file_t* file = VALUE_IT_LL(replaced_file_t*);
+        size_t file_size = replfile_get_data_size(file);
         data_cleaned += file_size;
-        notify_file_removed_to_lockers(netfile_get_locks_queue(file));
+        notify_file_removed_to_lockers(replfile_get_locks_queue(file));
 
-        char* pathname = netfile_get_pathname(file);
+        char* pathname = replfile_get_pathname(file);
         if(send_back)
         {
             size_t pathname_len = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
             if(writen_res && (writen_res = writen_string(client, pathname, pathname_len)))
             {
                 if(writen_res && (writen_res = writen(client, &file_size, sizeof(size_t))) && file_size > 0)
-                    writen_res = writen(client, netfile_get_data(file), file_size);
+                    writen_res = writen(client, replfile_get_data(file), file_size);
             }
         }
 
-        char* file_path = netfile_get_pathname(file);
+        char* file_path = replfile_get_pathname(file);
         bool_t is_last = node_get_next(CURR_IT_LL) == NULL;
         char* next_token = is_last ? "%s\0" : "%s,\0";
         snprintf(files_removed_str + files_rem_str_index, char_needed, next_token, file_path);
         files_rem_str_index += strnlen(file_path, MAX_PATHNAME_API_LENGTH) + !is_last;
     }
 
-    ll_empty(repl_list, FREE_FUNC(free_netfile));
+    ll_empty(repl_list, FREE_FUNC(free_replfile));
     free(repl_list);
     
     // enough length to log the entire formatted text

@@ -1,7 +1,7 @@
 #include <string.h>
 
 #include "replacement_policy.h"
-#include "network_file.h"
+#include "replaced_file.h"
 
 bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linked_list_t** output)
 {
@@ -29,10 +29,10 @@ bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linke
         queue_t* locks_queue = file_get_locks_queue(curr);
         void* data = file_get_data(curr);
 
-        network_file_t* entry = create_netfile();
-        netfile_set_pathname(entry, curr_pathname);
-        netfile_set_data(entry, data, curr_size);
-        netfile_set_locks_queue(entry, locks_queue);
+        replaced_file_t* entry = create_replfile();
+        replfile_set_pathname(entry, curr_pathname);
+        replfile_set_data(entry, data, curr_size);
+        replfile_set_locks_queue(entry, locks_queue);
 
         ll_add_tail(freed, entry);
         mem_freed += curr_size;
@@ -51,8 +51,8 @@ bool_t run_replacement_algorithm(const char* skip_file, size_t mem_needed, linke
     node_t* removing_node = ll_get_head_node(freed);
     while(removing_node)
     {
-        network_file_t* entry = node_get_value(removing_node);
-        remove_file_fs(fs, netfile_get_pathname(entry), TRUE);
+        replaced_file_t* entry = node_get_value(removing_node);
+        remove_file_fs(fs, replfile_get_pathname(entry), TRUE);
         removing_node = node_get_next(removing_node);
     }
 

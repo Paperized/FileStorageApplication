@@ -211,7 +211,7 @@ int readn_string(long fd, char* buf, size_t max_len)
         return 0;
     
     size_t actual_len = MIN(str_len, max_len);
-    res = readn(fd, buf, actual_len);
+    res = readn(fd, buf, str_len);
     if(res < 0)
         return res;
     

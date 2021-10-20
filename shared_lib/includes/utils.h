@@ -8,6 +8,9 @@
 
 #include "server_api_utils.h"
 
+// If APP_NAME is defined by a program we concatenate it with "-" otherwise we get and empty string
+// The final macro __APP_NAME it's used to have a customized log header name
+// For example to print [Server-Info] for the server and [Client-Info] for the client, [Info] if no APP_NAME was defined
 #if !defined(APP_NAME)
     #define APP_NAME ""
     #define __APP_NAME ""
@@ -17,11 +20,16 @@
 
 typedef enum bool { FALSE, TRUE } bool_t;
 
+// Colors used for different Log levels
 #define START_RED_CONSOLE "\033[31m"
 #define START_YELLOW_CONSOLE "\033[33m"
 #define RESET_COLOR_CONSOLE "\033[0m\n"
 
+// Print with color it's a base macro with takes various parameters such as color, the title, a message and arguments
+// It prints also the file, the function and the line where the print happened and also a errno string value
 #define PRINT_WITH_COLOR(color, title, errno_code, message, ...)  printf(color "[" __APP_NAME title "] " message " %s::%s:%d [%s]\n" RESET_COLOR_CONSOLE, ##__VA_ARGS__, (__FILE__), __func__, __LINE__, strerror(errno_code));
+
+// Implementation of various log levels
 #define PRINT_WARNING(errno_code, message, ...)  PRINT_WITH_COLOR(START_YELLOW_CONSOLE, "Warning", errno_code, message, ## __VA_ARGS__)
 #define PRINT_ERROR(errno_code, message, ...)  PRINT_WITH_COLOR(START_RED_CONSOLE, "Error", errno_code, message, ## __VA_ARGS__)
 #define PRINT_FATAL(errno_code, message, ...)  PRINT_WITH_COLOR(START_RED_CONSOLE, "Fatal", errno_code, message, ## __VA_ARGS__)
@@ -29,6 +37,7 @@ typedef enum bool { FALSE, TRUE } bool_t;
 
 #define DEBUG_LOG
 
+// Used to print debug messages if enabled
 #ifdef DEBUG_LOG
     #define PRINT_INFO_DEBUG(message, ...) PRINT_INFO(message, ## __VA_ARGS__)
     #define PRINT_WARNING_DEBUG(errno_code, message, ...)  PRINT_WARNING(errno_code, message, ## __VA_ARGS__)
@@ -103,9 +112,13 @@ typedef enum bool { FALSE, TRUE } bool_t;
 #define COND_BROADCAST(s) CHECK_FATAL_EVAL(pthread_cond_broadcast(s) != 0, "Condition variable signal failed!")
 #define COND_WAIT(s, m) CHECK_FATAL_EVAL(pthread_cond_wait(s, m) != 0, "Condition variable wait failed!")
 
+// Make a copy of a variable of certain type
+// The var it's malloc'ed and initialized with the from variable
 #define MAKE_COPY(name, type, from) CHECK_FATAL_EQ(name, malloc(sizeof(type)), NULL, NO_MEM_FATAL); \
                                     memcpy(name, &(from), sizeof(type))
 
+// Make a copy of a variable of a certain size
+// The var it's malloc'ed and initialized with the from variable
 #define MAKE_COPY_BYTES(name, size, from) CHECK_FATAL_EQ(name, malloc(size), NULL, NO_MEM_FATAL); \
                                             strncpy(name, from, size)
 
@@ -132,14 +145,29 @@ typedef enum bool { FALSE, TRUE } bool_t;
 #define MIN(x, y) (x < y ? x : y)
 #define MAX(x, y) (x > y ? x : y)
 
+// Read data from a file located in pathname
 int read_file_util(const char* pathname, void** buffer, size_t* size);
+
+// Write to a file located in pathname a buffer with a certain size
 int write_file_util(const char* pathname, void* buffer, size_t size);
+
+// Append to a file located in pathname a buffer with a certain size
 int append_file_util(const char* pathname, void* buffer, size_t size);
 
+// Get the filename from a path in input, returns a pointer to the first letter of the filename and a size of the filename
+// The return value is not malloc'ed and should not be freed by itself
 char* get_filename_from_path(const char* path, size_t path_len, size_t* filename_len);
+
+// From src1 and src2 build a file path inside dest
 int buildpath(char* dest, const char* src1, const char* src2, size_t src1length, size_t src2length);
+
+// Convert a string which contains the size and the unit measure of a file to bytes
+// E.g. 300KB => 300000, 10B => 10, 1MB => 1000000
 int filesize_string_to_byte(char* str, unsigned int max_length);
+
+// Check whether an operation is a valid one for the server
 bool_t is_valid_op(server_packet_op_t op);
+
 #define NO_MEM_FATAL "Cannot allocate more memory!"
 #define THREAD_CREATE_FATAL "Cannot create new thread!"
 
@@ -157,8 +185,11 @@ int readn(long fd, void* buf, size_t size);
 */
 int writen(long fd, void* buf, size_t size);
 
+// Read a string from a file descriptor of a certain length
+// The length read by this function will be the minimum of the length in input and the one sent from the fd
 int readn_string(long fd, char* buf, size_t max_len);
 
+// Write a string to a file descriptor 
 int writen_string(long fd, const char* buf, size_t len);
 
 #endif

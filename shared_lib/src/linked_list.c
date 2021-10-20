@@ -13,6 +13,7 @@ struct linked_list {
     node_t* tail;
 };
 
+// Creae and initialize a node
 int malloc_node(node_t** node)
 {
     RET_IF(!node, -1);

@@ -1,4 +1,10 @@
 #!/bin/bash
+
+################################################################################################
+# This script takes in input a client id, a server socket path to connect, and some parameters #
+# It creates automatically a folder containing readed files and replaced one                   #
+################################################################################################
+
 CURRENT_CLIENT=client$1
 SOCKET_PATH=$2
 PARAMS=$3

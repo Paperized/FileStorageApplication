@@ -1,4 +1,14 @@
 #!/bin/bash
+
+################################################################################################
+# This script runs the first test case, it generates some random data and a couple of files    #
+# copied by the current project folder code to carry out the test.                             #
+# Each file will call the run_client.sh script which will create automatically all folder      #
+# needed to save all files during this test, in the end this will generate a log file inside   #
+# the test folder which can be readed easily with the statistiche.sh script                    #
+################################################################################################
+
+
 MAINDIR=$(pwd)
 TESTDIR=$MAINDIR/tests
 SCRIPTDIR=$MAINDIR/script

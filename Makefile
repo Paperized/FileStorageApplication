@@ -65,13 +65,13 @@ $(CDIR)/obj/client_params.o: $(CDIR)/src/client_params.c
 	$(CC) $(CFLAGS_CLIENT) -g -c -o $@ $<
 
 
-$(LDIR)/bin/shared_lib: $(LDIR)/obj/utils.o $(LDIR)/obj/icl_hash.o $(LDIR)/obj/linked_list.o $(LDIR)/obj/queue.o $(LDIR)/obj/network_file.o
+$(LDIR)/bin/shared_lib: $(LDIR)/obj/utils.o $(LDIR)/obj/icl_hash.o $(LDIR)/obj/linked_list.o $(LDIR)/obj/queue.o $(LDIR)/obj/replaced_file.o
 	ar rcs $@.a $^
 
 $(LDIR)/obj/queue.o: $(LDIR)/src/queue.c
 	$(CC) $(CFLAGS_LIB) -g -c -o $@ $<
 
-$(LDIR)/obj/network_file.o: $(LDIR)/src/network_file.c
+$(LDIR)/obj/replaced_file.o: $(LDIR)/src/replaced_file.c
 	$(CC) $(CFLAGS_LIB) -g -c -o $@ $<
 
 $(LDIR)/obj/linked_list.o: $(LDIR)/src/linked_list.c
