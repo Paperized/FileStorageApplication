@@ -19,7 +19,7 @@ typedef enum {
 static int server_socket_id = -1;
 
 // Configuration used by the server
-static configuration_params_t* config = NULL;
+static configuration_params_t* current_config = NULL;
 // config associated mutex
 static pthread_mutex_t config_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -326,10 +326,10 @@ quit_signal_t server_wait_end_signal()
 // Initialized the workers by creating and execute each of them
 int initialize_workers()
 {
-    CHECK_FATAL_EQ(thread_workers_ids, malloc(config_get_num_workers(config) * (sizeof(pthread_t))), NULL, NO_MEM_FATAL);
+    CHECK_FATAL_EQ(thread_workers_ids, malloc(config_get_num_workers(current_config) * (sizeof(pthread_t))), NULL, NO_MEM_FATAL);
 
     int error;
-    for(int i = 0; i < config_get_num_workers(config); ++i)
+    for(int i = 0; i < config_get_num_workers(current_config); ++i)
     {
         CHECK_ERROR_NEQ(error, pthread_create(&thread_workers_ids[i], NULL, &handle_client_requests, NULL), 0,
                  ERR_SOCKET_INIT_WORKERS, "Coudln't create the %dth thread!", i);
@@ -525,7 +525,7 @@ int server_cleanup()
     pthread_cond_destroy(&clients_pending_cond);
 
     char socket_name[MAX_PATHNAME_API_LENGTH];
-    config_get_socket_name(config, socket_name);
+    config_get_socket_name(current_config, socket_name);
     remove(socket_name);
 
     // this function returns only SERVER_OK but can be expanded with other return values
@@ -556,7 +556,7 @@ int start_server()
 
 int init_server(const configuration_params_t* config)
 {
-    config = (configuration_params_t*)config;
+    current_config = (configuration_params_t*)config;
 
     clients_pending = create_q();
 
