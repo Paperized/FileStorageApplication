@@ -9,28 +9,35 @@
 #include "server_api_utils.h"
 #include "client_params.h"
 
+// Check whether the result of a write is valid, return if not
 #define CHECK_WRITE_PACKET(write_res) if(write_res == -1) { \
                                                 PRINT_WARNING(errno, "Cannot write data inside packet!"); \
                                                 return -1; \
                                             }
 
+// Check whether the result of a read is valid, return if not
 #define CHECK_READ_PACKET(read_res) if(read_res == -1) { \
                                                 PRINT_WARNING(errno, "Cannot read data inside packet!"); \
                                                 return -1; \
                                             }
 
+// Write a string to the server, return if any socket error occours
 #define WRITE_PACKET_STR(fd, write_res, str, len) write_res = writen_string(fd, str, len); \
                                             CHECK_WRITE_PACKET(write_res)
 
+// Write a generic buffer of size to the server, return if any socket error occours
 #define WRITE_PACKET(fd, write_res, data_ptr, size) write_res = writen(fd, data_ptr, size); \
                                             CHECK_WRITE_PACKET(write_res)
 
+// Read a string to the server, return if any socket error occours
 #define READ_PACKET_STR(fd, read_res, str, len) read_res = readn_string(fd, str, len); \
                                             CHECK_READ_PACKET(read_res)
-                                        
+
+// Read a generic buffer of size to the server, return if any socket error occours                          
 #define READ_PACKET(fd, read_res, data_ptr, size) read_res = readn(fd, data_ptr, size); \
                                             CHECK_READ_PACKET(read_res)
 
+// Return if the result of the operation is OP_ERROR, in this case set the errno and print the operation
 #define RET_ON_ERROR(fd, pathname)\
                                 { \
                                     server_packet_op_t op; \
@@ -47,9 +54,11 @@
                                     } \
                                 }
 
+// FD of server
 int fd_server;
 
-int wait_response_from_server()
+// Wait until data is available from server
+static int wait_response_from_server()
 {
     fd_set fdset;
     FD_ZERO(&fdset);
@@ -59,6 +68,7 @@ int wait_response_from_server()
     return res;
 }
 
+// Wait for msec
 static int msleep(long msec)
 {
     struct timespec ts;
@@ -213,7 +223,7 @@ int readNFiles(int N, const char* dirname)
         PRINT_INFO("readNFiles ended with success! %zu files readed for a total of %zu bytes! [%s]", num_read, data_size_read, strerror(0));
     }
 
-    return 0;
+    return num_read;
 }
 
 int writeFile(const char* pathname, const char* dirname)

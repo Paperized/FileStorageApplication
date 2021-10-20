@@ -11,26 +11,53 @@
 #include "utils.h"
 #include "file_storage_api.h"
 
+// Print --help for this program
 void print_help();
 
+// Send all files contained inside a queue
 void send_files(queue_t* files);
+
+// Send N files from a dirname
 void send_folder_files(pair_int_str_t* pair);
+
+// Read all files contained inside a queue
 void read_files(queue_t* files);
+
+// Read N files
 void read_n_files(long n);
+
+// Lock all files contained inside a queue
 void lock_files(queue_t* files);
+
+// Unlock all files contained inside a queue
 void unlock_files(queue_t* files);
+
+// Remove all files contained inside a queue
 void remove_files(queue_t* files);
 
-int read_file(const char* filename);
+// Read file by pathname
+int read_file(const char* pathname);
+
+// Write file by pathname
 int send_file(char* pathname);
+
+// Lock file by pathname
 int lock_file(const char* filename);
+
+// Unlock file by pathname
 int unlock_file(const char* filename);
+
+// Remove file by pathname
 int remove_file(const char* pathname);
 
+// Current ms to wait between each request
 long current_ms_between_reqs = 0;
+// Current folder where to save readed files
 char* current_save_folder = NULL;
+// Current folder where to save replaced files
 char* current_save_repl_folder = NULL;
 
+// Utility macro to make an api request and wait for sleep timer
 #define API_CALL(fn_call) fn_call; \
                             usleep(1000 * current_ms_between_reqs)
 

@@ -19,6 +19,7 @@ void init_client_params(client_params_t** params)
     (*params)->print_operations = FALSE;
 }
 
+// Free this pair
 static void free_pair_int_str(pair_int_str_t* pair)
 {
     NRET_IF(!pair);
@@ -26,6 +27,7 @@ static void free_pair_int_str(pair_int_str_t* pair)
     free(pair);
 }
 
+// Free this api option
 static void free_api_option(api_option_t* op)
 {
     NRET_IF(!op);
@@ -61,6 +63,7 @@ void free_client_params(client_params_t* params)
     free(params);
 }
 
+// Load an api option from a string in input into client params
 static void add_op_filename_list(client_params_t* params, char op, char* str)
 {
     NRET_IF(!str || !params);
@@ -204,32 +207,4 @@ int check_prerequisited(client_params_t* params)
     }
 
     return 0;
-}
-
-bool_t client_is_print_help(client_params_t* params)
-{
-    RET_IF(!params, FALSE);
-
-    return params->print_help;
-}
-
-char* client_get_socket_name(client_params_t* params)
-{
-    RET_IF(!params, NULL);
-
-    return params->server_socket_name;
-}
-
-bool_t client_print_operations(client_params_t* params)
-{
-    RET_IF(!params, FALSE);
-
-    return params->print_operations;
-}
-
-queue_t* client_get_api_operations(client_params_t* params)
-{
-    RET_IF(!params, NULL);
-
-    return params->api_operations;
 }

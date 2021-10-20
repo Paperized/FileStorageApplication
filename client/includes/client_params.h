@@ -21,18 +21,25 @@ typedef struct pair_int_str {
     int num;
 } pair_int_str_t;
 
+// Association between an operation and it's argument
 typedef struct api_option {
     char op;
     void* args;
 } api_option_t;
 
-// PER DOMANI AGGIUNGERE ELEMENTI ALLA CODA DEL CLIENT PARAMS E FARE UN LOOP NELLA CLASSE MAIN
-
+// Global client params
 extern client_params_t* g_params;
 
+// Creats and Initialize a client params
 void init_client_params(client_params_t** params);
+
+// Load api commands into this client params
 int  read_args_client_params(int argc, char** argv, client_params_t* params);
+
+// Check whether this client params have the required parameters
 int  check_prerequisited(client_params_t* params);
+
+// Free this client params
 void free_client_params(client_params_t* params);
 
 #endif
