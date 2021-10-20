@@ -4,6 +4,7 @@
 #include "utils.h"
 #include "server_api_utils.h"
 
+// Default shared buffer for log events of length less then this
 #define MAX_LOG_LINE_LENGTH 500
 
 typedef struct logging {
@@ -14,11 +15,18 @@ typedef struct logging {
     char __internal_used_str[MAX_LOG_LINE_LENGTH + 1];
 } logging_t;
 
+// Create and initialize a logger
 logging_t* create_log();
+// Associate and start the logging from this struct to this log file path
 int start_log(logging_t* log, const char* log_path);
+// Stop and close the logs to the current log file path
 int stop_log(logging_t* log);
+// Free logger
 void free_log(logging_t* log);
 
+// Helper internal function used to log strings of certain length
+// This does NOT handle concurrency, use LOG_FORMATTED_LINE and LOG_FORMATTED_N_LINE instead
+// If used with server.h use LOG_EVENT
 int __internal_write_log(logging_t* log, char* str, size_t len);
 
 #define LOG_FORMATTED_LINE(log, message, ...) { \

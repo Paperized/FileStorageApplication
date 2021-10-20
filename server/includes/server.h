@@ -1,6 +1,7 @@
 #ifndef _SERVER_
 #define _SERVER_
 
+// Define used to add a custom name to the logs (utils.h)
 #undef APP_NAME
 #define APP_NAME "Server"
 
@@ -27,22 +28,27 @@ typedef enum quit_signal {
 #define ERR_SOCKET_INIT_ACCEPTER -7
 #define SERVER_OK 0
 
-// GESTIRE SIGINT, SIGQUIT (Chiusura il prima possibile, non accetta nuove richieste e chiude)
-// e SIGHUP non accetta nuove richieste e finisce con quelle rimanenti
-
 typedef struct server server_t;
 
-extern pthread_mutex_t server_log_mutex;
-extern logging_t* server_log;
-
+// Get the quit signal for the server
 quit_signal_t get_quit_signal();
-file_system_t* get_fs();
-logging_t* get_log();
-void set_quit_signal(quit_signal_t value);
 
+// Get the global file system for the server
+file_system_t* get_fs();
+
+// Get the global logger for the server
+// Use LOG_EVENT to log a formatted string
+logging_t* get_log();
+
+// Initialize the server by allocating the needed memory, binds the socket server and listens to it.
+// *Needs a configutation in input to work.*
 int init_server(const configuration_params_t* config);
+
+// Starts the server by starting the workers and the connection handler then listen to signals.
 int start_server();
 
+// Used to log events in the server log file
+// If length is less the MAX_LOG_LINE_LENGTH the default synchronized buffer is used, otherwise a new string is allocated with that length
 #define LOG_EVENT(str, length, ...) if(length == -1 || length < MAX_LOG_LINE_LENGTH) { \
                                         LOG_FORMATTED_LINE(get_log(), str, ## __VA_ARGS__); \
                                     } else { \

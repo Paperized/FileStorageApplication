@@ -7,6 +7,9 @@
 #include "handle_client.h"
 #include "network_file.h"
 
+// Read a string(in this program we just read pathnames) for a max of MAX_PATHNAME_API_LENGTH characters
+// If the return status is -1 a problem occured with the sender (probably connection closed) and we return with an error
+// If the return status is 0 the server was not able to read anything(we consider any param required) so we return with an error
 #define CHECK_READ_PATH(error, output, sender, action)\
                                 error = readn_string(sender, output, MAX_PATHNAME_API_LENGTH); \
                                 if(error == -1) { \
@@ -18,6 +21,9 @@
                                     return return_response_error(action, NULL, sender, EBADMSG); \
                                 }
 
+// Read some data into the data buffer with length data_size
+// If the return status is -1 a problem occured with the sender (probably connection closed) and we return with an error
+// If the return status is 0 the server was not able to read anything(we consider any param required) so we return with an error
 #define CHECK_READ(error, data, data_size, sender, action) error = readn(sender, data, data_size); \
                                                             if(error == -1) \
                                                             { \
@@ -32,6 +38,7 @@
 
 #define RESET_FILE_WRITEMODE(file) file_set_write_enabled(file, FALSE)
 
+// Used by the server api handlers on error, logs the failed action, send back the error and set the errno value
 static inline int return_response_error(char* action, char* pathname, int sender, int error)
 {
     if(pathname)
@@ -43,16 +50,20 @@ static inline int return_response_error(char* action, char* pathname, int sender
         LOG_EVENT("%s run by %d failed! [%s]", -1, action, sender, strerror(error));
     }
 
+    server_packet_op_t res_op = OP_ERROR;
+    if(writen(sender, &res_op, sizeof(res_op)))
+        writen(sender, &error, sizeof(error));
     errno = error;
     return error;
 }
 
-static inline void notify_given_lock(int client)
+void notify_given_lock(int client)
 {
     server_packet_op_t op = OP_OK;
     writen(client, &op, sizeof(op));
 }
 
+// Used in handle_remove_file_req(sender), cleanup the lock queue and send back an OP_ERROR to each of them
 static inline void notify_file_removed_to_lockers(queue_t* locks_queue)
 {
     NRET_IF(!locks_queue);
@@ -68,9 +79,11 @@ static inline void notify_file_removed_to_lockers(queue_t* locks_queue)
     }
 }
 
+// Handles the files replaced by the file system, used to notify the lock queue(the clients waiting for the locks) of each file that the files got removed,
+// logs the replacement action and if the send_back flag is set the data is sent back to the client making the request
+// Must be called regardless of your needs if the replacement policy is called because of memory cleanup
 static int on_files_replaced(int client, bool_t are_replaced, bool_t send_back, linked_list_t* repl_list)
 {
-    RET_IF(client < 0, -1);
     if(!are_replaced || !repl_list)
     {
         size_t zero = 0;
@@ -350,7 +363,16 @@ int handle_append_file_req(int sender)
     }
 
     acquire_read_lock_file(file);
-    if(file_get_lock_owner(file) != sender)
+    if(!file_is_opened_by(file, sender))
+    {
+        release_read_lock_file(file);
+        release_write_lock_fs(fs);
+        free(data);
+        return return_response_error("OP_APPEND_FILE", pathname, sender, EPERM);
+    }
+
+    int lock_owner = file_get_lock_owner(file);
+    if(lock_owner != -1 && lock_owner != sender)
     {
         release_read_lock_file(file);
         release_write_lock_fs(fs);

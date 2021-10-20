@@ -159,7 +159,7 @@ bool_t file_is_client_already_queued(file_stored_t* file, int client)
 
 int file_delete_lock_client(file_stored_t* file, int client)
 {
-    RET_IF(!file, -1);
+    RET_IF(!file || client == -1, -1);
 
     FOREACH_Q(file->lock_queue)
     {
@@ -168,14 +168,17 @@ int file_delete_lock_client(file_stored_t* file, int client)
         {
             free(client_ptr);
             remove_node_q(file->lock_queue, CURR_IT_LL);
-            return 1;
+            break;
         }
     }
 
     if(file->locked_by == client)
+    {
         file->locked_by = file_dequeue_lock(file);
+        return file->locked_by;
+    }
 
-    return 0;
+    return -1;
 }
 
 int file_dequeue_lock(file_stored_t* file)

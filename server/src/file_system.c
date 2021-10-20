@@ -1,14 +1,17 @@
 #include "file_system.h"
 
 #include <string.h>
+#include "handle_client.h"
 #include "replacement_policy.h"
 #include "utils.h"
 
+// Used to metrics each worker with the number of reqs handled
 typedef struct pair_pthread_int {
     pthread_t pid;
     int val;
 } pair_pthread_int_t;
 
+// Metrics to be logged
 struct file_system_metrics {
     size_t max_memory_reached;
     size_t max_num_files_reached;
@@ -276,13 +279,17 @@ int notify_memory_changed_fs(file_system_t* fs, int amount)
 
 int notify_client_disconnected_fs(file_system_t* fs, int fd)
 {
-    RET_IF(!fs || fd < 0, -1);
+    RET_IF(!fs || fd == -1, -1);
 
     FOREACH_LL(fs->filenames_stored)
     {
         file_stored_t* file = icl_hash_find(fs->files_stored, VALUE_IT_LL(void*));
         file_close_client(file, fd);
-        file_delete_lock_client(file, fd);
+        int new_owner = file_delete_lock_client(file, fd);
+        if(new_owner != -1)
+        {
+            notify_given_lock(new_owner);
+        }
     }
 
     return 0;
