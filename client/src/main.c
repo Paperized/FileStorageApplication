@@ -59,7 +59,8 @@ char* current_save_repl_folder = NULL;
 
 // Utility macro to make an api request and wait for sleep timer
 #define API_CALL(fn_call) fn_call; \
-                            usleep(1000 * current_ms_between_reqs)
+                            if(current_ms_between_reqs > 0) \
+                                usleep(1000 * current_ms_between_reqs)
 
 int main(int argc, char **argv)
 {

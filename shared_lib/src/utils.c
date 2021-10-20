@@ -209,11 +209,20 @@ int readn_string(long fd, char* buf, size_t max_len)
         return res;
     if(str_len == 0)
         return 0;
-    
+
     size_t actual_len = MIN(str_len, max_len);
     res = readn(fd, buf, str_len);
     if(res < 0)
         return res;
+
+    // Will never go here in this project
+    if(str_len > max_len)
+    {
+        void* exceeded;
+        CHECK_FATAL_EQ(exceeded, malloc(str_len - max_len), NULL, NO_MEM_FATAL);
+        if(readn(fd, exceeded, str_len - max_len) < 0)
+            return res;
+    }
     
     buf[actual_len] = '\0';
     return actual_len;

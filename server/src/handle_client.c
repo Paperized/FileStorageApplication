@@ -68,7 +68,7 @@ static inline void notify_file_removed_to_lockers(queue_t* locks_queue)
 {
     NRET_IF(!locks_queue);
 
-    server_packet_op_t op = OP_OK;
+    server_packet_op_t op = OP_ERROR;
     int error = EIDRM;
 
     FOREACH_Q(locks_queue) {
@@ -682,11 +682,11 @@ int handle_unlock_file_req(int sender)
 
     int new_owner = file_dequeue_lock(file);
     file_set_lock_owner(file, new_owner);
-    notify_given_lock(new_owner);
-
     notify_used_file(file);
     release_write_lock_file(file);
     release_write_lock_fs(fs);
+
+    notify_given_lock(new_owner);
 
     LOG_EVENT("OP_UNLOCK_FILE run by %d on file %s [Success]", -1, sender, pathname);
     server_packet_op_t res_op = OP_OK;

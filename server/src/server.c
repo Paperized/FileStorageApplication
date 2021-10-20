@@ -392,7 +392,7 @@ void* handle_connections(void* params)
             --res;
         }
 
-        if(FD_ISSET(server_socket_id, &current_set))
+        if(res > 0 && FD_ISSET(server_socket_id, &current_set))
         {
             int new_id = accept(server_socket_id, NULL, 0);
             if(new_id != -1)
@@ -456,7 +456,7 @@ void* handle_connections(void* params)
 }
 
 // Initialize the connection handler by executing it's dedicated thread
-int initialize_connection_handler()
+static int initialize_connection_handler()
 {
     int error;
     CHECK_ERROR_NEQ(error, pipe(pipe_connections_handler), 0, ERR_SOCKET_INIT_ACCEPTER, "Cannot initialize pipe!");
@@ -468,7 +468,7 @@ int initialize_connection_handler()
 }
 
 // Called after receiving a S_SOFT or S_FAST from server_wait_end_signal() method
-int server_join_threads()
+static int server_join_threads()
 {
     quit_signal_t closing_signal;
 
@@ -481,7 +481,7 @@ int server_join_threads()
     memcpy(msg_check_flag + sizeof(notification_t), &closing_signal, sizeof(quit_signal_t));
 
     write(pipe_connections_handler[1], msg_check_flag, sizeof(msg_check_flag));
-    PRINT_INFO_DEBUG("Joining accepter thread.");
+    PRINT_INFO_DEBUG("Joining connection handler thread.");
     pthread_join(thread_connections_id, NULL);
 
     COND_BROADCAST(&clients_pending_cond);
