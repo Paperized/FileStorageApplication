@@ -12,13 +12,14 @@ SDIRNAME = server
 CDIR = ./$(CDIRNAME)
 SDIR = ./$(SDIRNAME)
 LDIR = ./shared_lib
+SCRIPTDIR = ./script
+TESTSDIR = ./tests
 BDIRNAME = bin
 
 CFLAGS_SERVER = $(CFLAGS) -I $(SDIR)/includes -I $(LDIR)/includes
 CFLAGS_CLIENT = $(CFLAGS) -I $(CDIR)/includes -I $(LDIR)/includes
 CFLAGS_LIB = $(CFLAGS) -I $(LDIR)/includes
 
-SCRIPTDIR = ./script
 EXAMPLE_CONFIG_NAME = example_config.txt
 DEFAULT_SOCKETNAME = my_socket.sk
 
@@ -83,14 +84,16 @@ $(LDIR)/obj/icl_hash.o: $(LDIR)/src/icl_hash.c
 $(LDIR)/obj/utils.o: $(LDIR)/src/utils.c
 	$(CC) $(CFLAGS_LIB) -g -c -o $@ $<
 
-cleanall: clean-client clean-server clean-shared_lib
+cleanall: clean-client clean-server clean-shared_lib clean-tests
 
 clean-client:
-	rm -f $(CDIR)/obj/* *~ core $(INCDIR)/*~
+	rm -f $(CDIR)/obj/* *~ core
 clean-server: 
-	rm -f $(SDIR)/obj/* *~ core $(INCDIR)/*~
+	rm -f $(SDIR)/obj/* *~ core
 clean-shared_lib: 
-	rm -f $(LDIR)/obj/* *~ core $(INCDIR)/*~
+	rm -f $(LDIR)/obj/* *~ core
+clean-tests:
+	find $(TESTSDIR) -delete
 
 define CONFIG_TEMPLATE
 SERVER_SOCKET_NAME=<path of socket file (es. ./my_socket.sk)>

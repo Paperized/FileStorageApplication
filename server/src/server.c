@@ -128,6 +128,32 @@ logging_t* get_log()
     return logging;
 }
 
+static void on_client_disconnected(int client, bool_t intentional, int* clients_count_ptr)
+{
+    if(!clients_count_ptr)
+    {
+        SET_VAR_MUTEX(clients_count, clients_count - 1, &clients_count_mutex);
+    }
+    else
+    {
+        *clients_count_ptr = *clients_count_ptr - 1;
+    }
+
+    acquire_write_lock_fs(fs);
+    notify_client_disconnected_fs(fs, client);
+    release_write_lock_fs(fs);
+    
+    if(intentional)
+    {
+        LOG_EVENT("OP_CLOSE_CONN client disconnected with id %d", -1, client);
+    }
+    else
+    {
+        LOG_EVENT("OP_CLOSE_CONN client disconnected with id %d for an invalid operation", -1, client);
+        close(client);
+    }
+}
+
 // Routine executed by each worker, reads a client fd from a shared queue and handles the request.
 // Stops once the quit signal is S_FAST or S_SOFT with no clients connected
 void* handle_client_requests(void* data)
@@ -167,23 +193,7 @@ void* handle_client_requests(void* data)
         bool_t clients_invalid_req = !is_valid_op(request_op);
         if(clients_disconnected || clients_invalid_req)
         {
-            LOCK_MUTEX(&clients_set_connected_mutex);
-            SET_VAR_MUTEX(clients_count, clients_count - 1, &clients_count_mutex);
-            UNLOCK_MUTEX(&clients_set_connected_mutex);
-
-            acquire_write_lock_fs(fs);
-            notify_client_disconnected_fs(fs, client_pending);
-            release_write_lock_fs(fs);
-            
-            if(clients_disconnected)
-            {
-                LOG_EVENT("OP_CLOSE_CONN client disconnected with id %d", -1, client_pending);
-            }
-            else
-            {
-                LOG_EVENT("OP_CLOSE_CONN client disconnected with id %d for an invalid operation", -1, client_pending);
-                close(client_pending);
-            }
+            on_client_disconnected(client_pending, clients_disconnected, NULL);
             continue;
         }
 
@@ -349,7 +359,9 @@ void* handle_connections(void* params)
     FD_SET(pipe_connections_handler[0], &clients_set_connected);
     clients_set_max_id = MAX(server_socket_id, pipe_connections_handler[0]);
 
+    char buffer_check_disconnect[1];
     bool_t soft_close_in_progress = FALSE;
+    int curr = 0;
     while(!threads_must_close())
     {
         fd_set current_set;
@@ -390,7 +402,14 @@ void* handle_connections(void* params)
             }
 
             --res;
+            if(res == 0)
+                continue;
         }
+
+        // Copy of clients_count value, is not initialized yet because of the overhead at every message received
+        // It's initialized or inside an incoming connection or inside a disconnection lazily
+        int n_clients = -1;
+        int n_clients_start = -1;
 
         if(res > 0 && FD_ISSET(server_socket_id, &current_set))
         {
@@ -410,11 +429,8 @@ void* handle_connections(void* params)
 
                     LOG_EVENT("OP_CONN client connected with id %d!", -1, new_id);
 
-                    // aggiorno eventualmente il massimo num di client concorrenti
-                    int n_clients;
-                    GET_VAR_MUTEX(clients_count, n_clients, &clients_count_mutex);
-                    if(n_clients + 1 > max_client_alltogether)
-                        max_client_alltogether = n_clients;
+                    GET_VAR_MUTEX(clients_count, n_clients_start, &clients_count_mutex);
+                    n_clients = n_clients_start + 1;
                 }
             }
             --res;
@@ -430,12 +446,28 @@ void* handle_connections(void* params)
 
             if(FD_ISSET(max_fds, &current_set))
             {
+                EXEC_WITH_MUTEX(FD_CLR(max_fds, &clients_set_connected), &clients_set_connected_mutex);
+
+                // Read the first unused byte from the client, used to detect whether the client is still connected
+                if(read(max_fds, &buffer_check_disconnect, 1) <= 0)
+                {
+                    // If the n_clients value was not loaded previously load it
+                    if(n_clients == -1)
+                    {
+                        GET_VAR_MUTEX(clients_count, n_clients_start, &clients_count_mutex);
+                        n_clients = n_clients_start;
+                    }
+                    // update the clients count based on this local variable not the global one
+                    // the count will be set globally at the end
+                    on_client_disconnected(max_fds, TRUE, &n_clients);
+                    --res;
+                    continue;
+                }
+
                 int* new_client;
                 MAKE_COPY(new_client, int, max_fds);
 
                 int num_reqs = 0;
-
-                EXEC_WITH_MUTEX(FD_CLR(max_fds, &clients_set_connected), &clients_set_connected_mutex);
 
                 LOCK_MUTEX(&clients_pending_mutex);
                 enqueue(clients_pending, new_client);
@@ -448,6 +480,26 @@ void* handle_connections(void* params)
             }
 
             --max_fds;
+        }
+
+        // if n_clients was changed by a connection or disconnection
+        if(n_clients > -1)
+        {
+            int clients_count_check;
+            GET_VAR_MUTEX(clients_count, clients_count_check, &clients_count_mutex);
+            // Check if some workers closed an invalid connection since n_clients_start was set
+            if(clients_count_check != n_clients_start)
+            {
+                // Calculate how many clients they closed and subtract it from the current n_clients calculated in this thread
+                int diff = n_clients_start - clients_count_check;
+                n_clients -= diff;
+            }
+
+            // Set the update clients count back
+            SET_VAR_MUTEX(clients_count, n_clients, &clients_count_mutex);
+            // and the value is > then the max set it
+            if(n_clients > max_client_alltogether)
+                max_client_alltogether = n_clients;
         }
     }
 

@@ -56,6 +56,8 @@
 
 // FD of server
 int fd_server;
+// First byte sent to the server
+char first_byte[1] = { 0 };
 
 // Wait until data is available from server
 static int wait_response_from_server()
@@ -123,6 +125,7 @@ int openFile(const char* pathname, int flags)
     size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
     int error;
     server_packet_op_t op = OP_OPEN_FILE;
+    WRITE_PACKET(fd_server, error, &first_byte, sizeof(char));
     WRITE_PACKET(fd_server, error, &op, sizeof(server_packet_op_t));
     WRITE_PACKET(fd_server, error, &flags, sizeof(int));
     WRITE_PACKET_STR(fd_server, error, pathname, path_size);
@@ -143,6 +146,7 @@ int readFile(const char* pathname, void** buf, size_t* size)
     size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
     int error;
     server_packet_op_t op = OP_READ_FILE;
+    WRITE_PACKET(fd_server, error, &first_byte, sizeof(char));
     WRITE_PACKET(fd_server, error, &op, sizeof(server_packet_op_t));
     WRITE_PACKET_STR(fd_server, error, pathname, path_size);
 
@@ -170,6 +174,7 @@ int readNFiles(int N, const char* dirname)
 {
     int error;
     server_packet_op_t op = OP_READN_FILES;
+    WRITE_PACKET(fd_server, error, &first_byte, sizeof(char));
     WRITE_PACKET(fd_server, error, &op, sizeof(server_packet_op_t));
     WRITE_PACKET(fd_server, error, &N, sizeof(int));
 
@@ -241,6 +246,7 @@ int writeFile(const char* pathname, const char* dirname)
 
     int error;
     server_packet_op_t op = OP_WRITE_FILE;
+    WRITE_PACKET(fd_server, error, &first_byte, sizeof(char));
     WRITE_PACKET(fd_server, error, &op, sizeof(server_packet_op_t));
     WRITE_PACKET_STR(fd_server, error, pathname, path_len);
     bool_t receive_back_files = dirname != NULL;
@@ -312,6 +318,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
     size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
     int error;
     server_packet_op_t op = OP_APPEND_FILE;
+    WRITE_PACKET(fd_server, error, &first_byte, sizeof(char));
     WRITE_PACKET(fd_server, error, &op, sizeof(server_packet_op_t));
     WRITE_PACKET_STR(fd_server, error, pathname, path_size);
     bool_t receive_back_files = dirname != NULL;
@@ -380,6 +387,7 @@ int closeFile(const char* pathname)
     size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
     int error;
     server_packet_op_t op = OP_CLOSE_FILE;
+    WRITE_PACKET(fd_server, error, &first_byte, sizeof(char));
     WRITE_PACKET(fd_server, error, &op, sizeof(server_packet_op_t));
     WRITE_PACKET_STR(fd_server, error, pathname, path_size);
 
@@ -399,6 +407,7 @@ int removeFile(const char* pathname)
     size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
     int error;
     server_packet_op_t op = OP_REMOVE_FILE;
+    WRITE_PACKET(fd_server, error, &first_byte, sizeof(char));
     WRITE_PACKET(fd_server, error, &op, sizeof(server_packet_op_t));
     WRITE_PACKET_STR(fd_server, error, pathname, path_size);
 
@@ -418,6 +427,7 @@ int lockFile(const char* pathname)
     size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
     int error;
     server_packet_op_t op = OP_LOCK_FILE;
+    WRITE_PACKET(fd_server, error, &first_byte, sizeof(char));
     WRITE_PACKET(fd_server, error, &op, sizeof(server_packet_op_t));
     WRITE_PACKET_STR(fd_server, error, pathname, path_size);
 
@@ -437,6 +447,7 @@ int unlockFile(const char* pathname)
     size_t path_size = strnlen(pathname, MAX_PATHNAME_API_LENGTH);
     int error;
     server_packet_op_t op = OP_UNLOCK_FILE;
+    WRITE_PACKET(fd_server, error, &first_byte, sizeof(char));
     WRITE_PACKET(fd_server, error, &op, sizeof(server_packet_op_t));
     WRITE_PACKET_STR(fd_server, error, pathname, path_size);
 
