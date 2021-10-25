@@ -478,10 +478,7 @@ int handle_read_file_req(int sender)
         if(writen(sender, &content_size, sizeof(size_t)))
         {
             if(content_size > 0)
-            {
-                char* read_data = file_get_data(file);
-                writen(sender, &read_data, content_size);
-            }
+                writen(sender, file_get_data(file), content_size);
         }
     }
 

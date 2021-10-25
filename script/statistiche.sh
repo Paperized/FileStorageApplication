@@ -10,6 +10,14 @@ if [ ! -f "$LOG_PATH" ] ; then
     exit 1
 fi
 
+printThreadReqs() {
+  while read THREAD
+  do
+    IFS=' ' read -r -a array <<< $THREAD
+    echo "Thread with PID ${array[0]} handled ${array[1]} requests"
+  done
+}
+
 avgOfSum() {
   SUM=0
   N=0
@@ -75,4 +83,7 @@ echo -e "Number of close: $N_CLOSE\n"
 echo "----- SERVER METRICS -----------"
 echo "Max clients connected alltogether: $N_MAX_CONN"
 echo "Server max size: ${MAX_SIZE}MB"
-echo "Server max file count: $MAX_COUNT"
+echo -e "Server max file count: $MAX_COUNT\n"
+
+echo "-----  THREADS REQS  -----------"
+sed -nr 's/FINAL_METRICS Thread ([0-9]+).*handled.*( [0-9]+).*/\1\2/p' $LOG_PATH | printThreadReqs

@@ -361,7 +361,6 @@ void* handle_connections(void* params)
 
     char buffer_check_disconnect[1];
     bool_t soft_close_in_progress = FALSE;
-    int curr = 0;
     while(!threads_must_close())
     {
         fd_set current_set;
