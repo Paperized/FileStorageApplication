@@ -1,4 +1,4 @@
-CC = gcc
+CC = gcc -std=gnu99
 CFLAGS = -Wall -pedantic
 
 ODIR = ./obj
