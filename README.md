@@ -1,7 +1,7 @@
 # FileStorageApplication
 File storage application made in C using unix libraries and sockets
 
-This is a multithread application divided in two client and server, both share a common folder and have the same interface to comunicate with each other.
+This is a multithread application divided in client and server, both share a common folder and have the same interface to comunicate with each other.
 
 It uses sockets, every request has a length, a specific ID specified in an enum, and each field serialized in byte (using utils.h functions).
 
